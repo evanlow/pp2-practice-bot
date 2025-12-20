@@ -1,0 +1,36 @@
+# Environment variables (NEVER commit API keys)
+.env
+
+# Virtual environment
+.venv
+venv/
+ENV/
+env/
+
+# Virtual environment in project root
+Lib/
+Include/
+Scripts/
+pyvenv.cfg
+etc/
+share/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Streamlit cache
+.streamlit/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
