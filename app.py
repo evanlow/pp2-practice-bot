@@ -150,30 +150,41 @@ def handle_user_input(user_input: str):
         "content": user_input
     })
     
-    # Display user message
-    with st.chat_message("user"):
-        st.markdown(user_input)
+    # Flag that we need to generate a response
+    st.session_state.needs_response = True
     
-    # Generate candidate response
-    with st.chat_message("assistant"):
-        with st.spinner("Candidate is thinking..."):
-            # Get scenario text (summary field)
-            scenario_text = SCENARIOS[st.session_state.scenario]["summary"]
-            
-            response = candidate_reply(
-                messages=st.session_state.messages,
-                scenario_text=scenario_text,
-                difficulty=st.session_state.difficulty,
-                stage=current_stage
-            )
+    # Rerun to show user message immediately
+    st.rerun()
+
+
+def generate_pending_response():
+    """Generate candidate response if one is pending"""
+    if not st.session_state.get("needs_response", False):
+        return
+    
+    # Clear the flag
+    st.session_state.needs_response = False
+    
+    # Generate candidate response (with spinner feedback)
+    with st.spinner("Candidate is thinking..."):
+        current_stage = st.session_state.pp2.get_stage_name()
+        scenario_text = SCENARIOS[st.session_state.scenario]["summary"]
         
-        st.markdown(response)
+        response = candidate_reply(
+            messages=st.session_state.messages,
+            scenario_text=scenario_text,
+            difficulty=st.session_state.difficulty,
+            stage=current_stage
+        )
     
     # Add candidate response to history
     st.session_state.messages.append({
         "role": "assistant",
         "content": response
     })
+    
+    # Rerun to display updated chat history
+    st.rerun()
 
 
 # ============================================================================
@@ -300,6 +311,18 @@ def main():
         
         st.divider()
         
+        # Debug options
+        st.subheader("Debug")
+        show_debug = st.checkbox(
+            "Show detection debug details",
+            value=False,
+            key="show_debug_details",
+            help="Display keyword detection details for met evidence items"
+        )
+        st.session_state.show_debug = show_debug
+        
+        st.divider()
+        
         # Reset button
         st.subheader("Controls")
         if st.button("🔄 Reset Conversation", use_container_width=True):
@@ -321,31 +344,14 @@ def main():
     
     st.divider()
     
-    # Create two columns: chat (left) and evidence checklist (right)
-    col_chat, col_evidence = st.columns([2, 1])
-    
-    with col_chat:
-        # Display chat history
-        display_chat_history()
+    # Evidence checklist in expander (collapsible)
+    current_stage = st.session_state.pp2.get_stage_name()
+    if current_stage in st.session_state.evidence:
+        checklist = st.session_state.evidence[current_stage]
+        met_count = sum(1 for item in checklist if item.met)
+        total_count = len(checklist)
         
-        # Chat input - always at the bottom
-        if prompt := st.chat_input("Type your question or comment as the assessor..."):
-            handle_user_input(prompt)
-    
-    with col_evidence:
-        # Display evidence checklist for current stage
-        current_stage = st.session_state.pp2.get_stage_name()
-        st.subheader("📋 Evidence Checklist")
-        st.caption(f"**{current_stage}** stage")
-        
-        # Get current stage checklist
-        if current_stage in st.session_state.evidence:
-            checklist = st.session_state.evidence[current_stage]
-            
-            # Calculate completion
-            met_count = sum(1 for item in checklist if item.met)
-            total_count = len(checklist)
-            
+        with st.expander(f"📋 Evidence Checklist - {current_stage} ({met_count}/{total_count} items)", expanded=False):
             # Show progress
             st.progress(met_count / total_count if total_count > 0 else 0)
             st.caption(f"**Completion: {met_count}/{total_count}** items")
@@ -353,38 +359,57 @@ def main():
             st.divider()
             
             # Display each checklist item
-            for item in checklist:
+            for idx, item in enumerate(checklist):
+                # Add subheaders for Briefing stage to group 14 items
+                if current_stage == "Briefing":
+                    if idx == 0:
+                        st.markdown("**Opening & Comfort**")
+                    elif idx == 3:
+                        st.markdown("**Assessment Scope & Process**")
+                    elif idx == 8:
+                        st.markdown("**Support, Rights & Assurance**")
+                
                 checkbox_icon = "✅" if item.met else "⬜"
                 st.markdown(f"{checkbox_icon} {item.text}")
                 
-                # Show evidence notes if item is met
-                if item.met and item.evidence_notes:
+                # Show evidence notes if debug mode enabled and item is met
+                if st.session_state.get("show_debug", False) and item.met and item.evidence_notes:
                     st.caption(f"   *{item.evidence_notes}*")
             
             st.divider()
             
-            # Manual evidence adjustment
-            with st.expander("🔧 Manual evidence adjustment"):
-                st.caption("Override evidence items manually for practice")
+            # Manual evidence adjustment (not nested, just a section)
+            st.markdown("**🔧 Manual Evidence Adjustment**")
+            st.caption("Override evidence items manually for practice")
+            
+            for idx, item in enumerate(checklist):
+                # Create unique key for each checkbox
+                checkbox_key = f"manual_{current_stage}_{item.id}"
                 
-                for idx, item in enumerate(checklist):
-                    # Create unique key for each checkbox
-                    checkbox_key = f"manual_{current_stage}_{item.id}"
-                    
-                    # Checkbox for manual toggle
-                    new_state = st.checkbox(
-                        item.text,
-                        value=item.met,
-                        key=checkbox_key
-                    )
-                    
-                    # If state changed, update the item
-                    if new_state != item.met:
-                        item.met = new_state
-                        item.evidence_notes = "Manual toggle"
-                        item.last_updated_turn = st.session_state.turn_index
-        else:
-            st.info("No checklist available for this stage.")
+                # Checkbox for manual toggle
+                new_state = st.checkbox(
+                    item.text,
+                    value=item.met,
+                    key=checkbox_key
+                )
+                
+                # If state changed, update the item
+                if new_state != item.met:
+                    item.met = new_state
+                    item.evidence_notes = "Manual toggle"
+                    item.last_updated_turn = st.session_state.turn_index
+    
+    st.divider()
+    
+    # Display chat history FIRST (so user sees their message immediately)
+    display_chat_history()
+    
+    # Generate pending response if needed (shows spinner AFTER chat displays)
+    generate_pending_response()
+    
+    # Chat input - placed outside columns at the bottom for proper positioning
+    if prompt := st.chat_input("Type your question or comment as the assessor..."):
+        handle_user_input(prompt)
 
 
 # ============================================================================

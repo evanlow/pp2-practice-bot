@@ -36,28 +36,60 @@ class EvidenceItem:
 STAGE_CHECKLISTS = {
     "Briefing": [
         EvidenceItem(
-            id="briefing_identity",
-            text="Confirmed candidate identity and role"
+            id="briefing_01",
+            text="Introduced myself to the candidate."
         ),
         EvidenceItem(
-            id="briefing_purpose",
-            text="Explained purpose and objectives of assessment"
+            id="briefing_02",
+            text="Confirmed the identity of the candidate against the attendance list or assessment records e.g. NRIC."
         ),
         EvidenceItem(
-            id="briefing_process",
-            text="Described assessment process and methods to be used"
+            id="briefing_03",
+            text="Put the candidates at ease by adopting a friendly and helpful approach."
         ),
         EvidenceItem(
-            id="briefing_confidentiality",
-            text="Covered confidentiality and data handling"
+            id="briefing_04",
+            text="Confirmed the Technical Skills and Competency and competency standards/reference to be assessed with the candidate."
         ),
         EvidenceItem(
-            id="briefing_duration",
-            text="Informed candidate of expected duration"
+            id="briefing_05",
+            text="Explained the purpose and context of the assessment clearly."
         ),
         EvidenceItem(
-            id="briefing_questions",
-            text="Invited and answered candidate's questions"
+            id="briefing_06",
+            text="Explained the assessment process, methods and tools clearly."
+        ),
+        EvidenceItem(
+            id="briefing_07",
+            text="Established the evidences to be gathered during the assessment."
+        ),
+        EvidenceItem(
+            id="briefing_08",
+            text="Informed candidates the duration of the assessment."
+        ),
+        EvidenceItem(
+            id="briefing_09",
+            text="Identified and discussed on how to address candidate's special needs."
+        ),
+        EvidenceItem(
+            id="briefing_10",
+            text="Explained the process of appeal."
+        ),
+        EvidenceItem(
+            id="briefing_11",
+            text="Assured the candidate of the confidentiality of the assessment."
+        ),
+        EvidenceItem(
+            id="briefing_12",
+            text="Explained the legal, safety and ethical issues (if applicable)."
+        ),
+        EvidenceItem(
+            id="briefing_13",
+            text="Encouraged candidates to seek clarifications if in doubt."
+        ),
+        EvidenceItem(
+            id="briefing_14",
+            text="Explained the purpose of my note-taking during the assessment."
         ),
     ],
     

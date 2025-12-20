@@ -1,11 +1,12 @@
 """
 evidence_engine.py
-Lightweight rule-based evidence detection
+Hybrid evidence detection with keyword matching and AI fallback
 
-Uses keyword heuristics to automatically mark evidence items as met
-based on assessor input. Deterministic and transparent.
+Uses keyword heuristics first (fast, free), then falls back to OpenAI API
+for semantic understanding when keywords don't match.
 """
 
+import os
 from rubric import EvidenceItem
 
 
@@ -15,13 +16,21 @@ from rubric import EvidenceItem
 # Map evidence item IDs to lists of detection keywords
 
 EVIDENCE_KEYWORDS = {
-    # Briefing stage
-    "briefing_identity": ["nric", "identity", "attendance", "name", "confirm who you are"],
-    "briefing_purpose": ["purpose", "objective", "why we're here", "goal of this", "assessment is to"],
-    "briefing_process": ["process", "role play", "oral questions", "stages", "how this works", "assessment method"],
-    "briefing_confidentiality": ["confidential", "privacy", "data protection", "information will be"],
-    "briefing_duration": ["minutes", "duration", "time", "how long", "take about"],
-    "briefing_questions": ["any questions", "do you have questions", "ask me anything", "clarify"],
+    # Briefing stage (14 items)
+    "briefing_01": ["my name is", "my name's", "i'm", "i am", "introduce", "assessor", "call me"],
+    "briefing_02": ["nric", "identity", "attendance list", "assessment record", "confirm who you are"],
+    "briefing_03": ["no worries", "take your time", "comfortable", "at ease", "relax"],
+    "briefing_04": ["tsc", "competency", "standards", "skills framework", "criteria"],
+    "briefing_05": ["purpose", "context", "today we", "objective"],
+    "briefing_06": ["process", "role play", "oral questions", "method", "tools"],
+    "briefing_07": ["evidence", "observations", "documents", "records", "notes"],
+    "briefing_08": ["minutes", "duration", "time", "how long"],
+    "briefing_09": ["special needs", "accommodation", "support", "adjustment"],
+    "briefing_10": ["appeal"],
+    "briefing_11": ["confidential", "privacy"],
+    "briefing_12": ["legal", "safety", "ethical", "consent"],
+    "briefing_13": ["questions", "clarify", "ask anytime", "if unclear"],
+    "briefing_14": ["note-taking", "taking notes", "write notes", "record"],
     
     # Role Play stage
     "roleplay_context": ["tell me about", "background", "situation", "context", "what's happening"],
@@ -47,14 +56,72 @@ EVIDENCE_KEYWORDS = {
 }
 
 
+def _ai_semantic_check(assessor_text: str, evidence_item: EvidenceItem) -> tuple[bool, str]:
+    """
+    Use OpenAI API to semantically check if assessor text addresses evidence item.
+    
+    Args:
+        assessor_text: Text from assessor
+        evidence_item: Evidence item to check
+        
+    Returns:
+        Tuple of (is_met: bool, explanation: str)
+    """
+    try:
+        from openai import OpenAI
+        
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            return False, "No API key"
+        
+        client = OpenAI(api_key=api_key)
+        
+        prompt = f"""Analyze if the assessor's statement addresses this PP2 assessment requirement.
+
+Evidence requirement: "{evidence_item.text}"
+
+Assessor's statement: "{assessor_text}"
+
+Does the assessor's statement demonstrate they are addressing this requirement?
+Respond with ONLY "YES" or "NO" followed by a brief reason (max 10 words).
+
+Example responses:
+YES - Assessor introduced themselves by name
+NO - Statement unrelated to this requirement
+"""
+        
+        response = client.chat.completions.create(
+            model=os.getenv("MODEL", "gpt-4o-mini"),
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,  # Deterministic
+            max_tokens=30
+        )
+        
+        answer = response.choices[0].message.content.strip()
+        
+        if answer.upper().startswith("YES"):
+            reason = answer[3:].strip(" -")
+            return True, f"AI: {reason}" if reason else "AI: Semantic match"
+        else:
+            return False, ""
+            
+    except Exception as e:
+        # Silently fail - don't break the app if AI fails
+        return False, f"AI error: {str(e)[:50]}"
+
+
 def update_evidence_from_assessor_text(
     stage_checklists: dict[str, list[EvidenceItem]],
     stage: str,
     assessor_text: str,
-    turn_index: int
+    turn_index: int,
+    use_ai_fallback: bool = True
 ) -> None:
     """
-    Update evidence checklist based on assessor's text using keyword detection.
+    Update evidence checklist based on assessor's text using hybrid detection.
+    
+    First tries keyword matching (fast, free), then falls back to AI semantic
+    analysis if keywords don't match.
     
     This function modifies the stage_checklists dict in place, marking items
     as met when relevant keywords are detected in the assessor's input.
@@ -64,6 +131,7 @@ def update_evidence_from_assessor_text(
         stage: Current PP2 stage name (e.g., "Briefing", "Role Play")
         assessor_text: Text typed by the assessor
         turn_index: Current turn/message number for tracking
+        use_ai_fallback: Enable AI semantic check for items keywords miss (default: True)
     """
     # Get checklist for current stage
     if stage not in stage_checklists:
@@ -72,7 +140,7 @@ def update_evidence_from_assessor_text(
     checklist = stage_checklists[stage]
     assessor_text_lower = assessor_text.lower()
     
-    # Check each evidence item in the current stage
+    # Phase 1: Keyword detection (fast, free)
     for item in checklist:
         # Skip if already met
         if item.met:
@@ -87,8 +155,18 @@ def update_evidence_from_assessor_text(
         if matched_keywords:
             # Mark as met
             item.met = True
-            item.evidence_notes = f"Detected keywords: {', '.join(matched_keywords[:3])}"  # Show first 3
+            item.evidence_notes = f"Keywords: {', '.join(matched_keywords[:3])}"
             item.last_updated_turn = turn_index
+    
+    # Phase 2: AI fallback for unmet items (if enabled and text is substantial)
+    if use_ai_fallback and len(assessor_text.strip()) > 10:
+        for item in checklist:
+            if not item.met:
+                is_met, explanation = _ai_semantic_check(assessor_text, item)
+                if is_met:
+                    item.met = True
+                    item.evidence_notes = explanation
+                    item.last_updated_turn = turn_index
 
 
 def get_stage_completion_percentage(stage_checklists: dict[str, list[EvidenceItem]], stage: str) -> float:

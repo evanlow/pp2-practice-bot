@@ -22,8 +22,10 @@ class TestEvidenceKeywords(unittest.TestCase):
     def test_has_briefing_keywords(self):
         """Verify briefing stage items have keyword mappings"""
         briefing_ids = [
-            "briefing_identity", "briefing_purpose", "briefing_process",
-            "briefing_confidentiality", "briefing_duration", "briefing_questions"
+            "briefing_01", "briefing_02", "briefing_03", "briefing_04",
+            "briefing_05", "briefing_06", "briefing_07", "briefing_08",
+            "briefing_09", "briefing_10", "briefing_11", "briefing_12",
+            "briefing_13", "briefing_14"
         ]
         
         for item_id in briefing_ids:
@@ -60,7 +62,7 @@ class TestUpdateEvidenceFromAssessorText(unittest.TestCase):
         # Find the identity item
         identity_item = next(
             item for item in self.checklists["Briefing"]
-            if item.id == "briefing_identity"
+            if item.id == "briefing_02"
         )
         
         self.assertTrue(identity_item.met)
@@ -82,7 +84,7 @@ class TestUpdateEvidenceFromAssessorText(unittest.TestCase):
             
             identity_item = next(
                 item for item in checklists["Briefing"]
-                if item.id == "briefing_identity"
+                if item.id == "briefing_02"
             )
             self.assertTrue(identity_item.met, f"Failed to match: {text}")
     
@@ -170,15 +172,15 @@ class TestUpdateEvidenceFromAssessorText(unittest.TestCase):
         # Check multiple items were marked
         process_item = next(
             item for item in self.checklists["Briefing"]
-            if item.id == "briefing_process"
+            if item.id == "briefing_06"
         )
         confidentiality_item = next(
             item for item in self.checklists["Briefing"]
-            if item.id == "briefing_confidentiality"
+            if item.id == "briefing_11"
         )
         duration_item = next(
             item for item in self.checklists["Briefing"]
-            if item.id == "briefing_duration"
+            if item.id == "briefing_08"
         )
         
         self.assertTrue(process_item.met)
@@ -196,11 +198,14 @@ class TestUpdateEvidenceFromAssessorText(unittest.TestCase):
         
         identity_item = next(
             item for item in self.checklists["Briefing"]
-            if item.id == "briefing_identity"
+            if item.id == "briefing_02"
         )
         
-        # Should start with "Detected keywords:"
-        self.assertTrue(identity_item.evidence_notes.startswith("Detected keywords:"))
+        # Should start with "Keywords:" or "AI:"
+        self.assertTrue(
+            identity_item.evidence_notes.startswith("Keywords:") or 
+            identity_item.evidence_notes.startswith("AI:")
+        )
     
     def test_turn_index_recorded_correctly(self):
         """Turn index should be recorded when item is marked met"""
@@ -214,7 +219,7 @@ class TestUpdateEvidenceFromAssessorText(unittest.TestCase):
         
         identity_item = next(
             item for item in self.checklists["Briefing"]
-            if item.id == "briefing_identity"
+            if item.id == "briefing_02"
         )
         
         self.assertEqual(identity_item.last_updated_turn, turn)
@@ -280,10 +285,10 @@ class TestGetStageCompletionPercentage(unittest.TestCase):
     
     def test_calculates_partial_completion(self):
         """Should calculate correct percentage for partial completion"""
-        # Briefing has 6 items, mark 3 as met (50%)
-        for i in range(3):
+        # Briefing has 14 items, mark 7 as met (50%)
+        for i in range(7):
             self.checklists["Briefing"][i].met = True
-        
+
         percentage = get_stage_completion_percentage(self.checklists, "Briefing")
         self.assertEqual(percentage, 50.0)
     
@@ -336,7 +341,7 @@ class TestGetAllStagesSummary(unittest.TestCase):
         summary = get_all_stages_summary(self.checklists)
         
         # Based on requirements
-        self.assertEqual(summary["Briefing"]["total"], 6)
+        self.assertEqual(summary["Briefing"]["total"], 14)
         self.assertEqual(summary["Role Play"]["total"], 4)
         self.assertEqual(summary["Oral Questions"]["total"], 4)
         self.assertEqual(summary["Recovery"]["total"], 3)
@@ -359,18 +364,18 @@ class TestGetAllStagesSummary(unittest.TestCase):
         summary = get_all_stages_summary(self.checklists)
         
         self.assertEqual(summary["Briefing"]["met"], 2)
-        self.assertAlmostEqual(summary["Briefing"]["percentage"], 33.3, places=1)
+        self.assertAlmostEqual(summary["Briefing"]["percentage"], 14.3, places=1)
     
     def test_percentage_rounding(self):
         """Percentages should be rounded to 1 decimal place"""
-        # Mark 1 out of 6 items (16.666...%)
+        # Mark 1 out of 14 items (7.142...%)
         self.checklists["Briefing"][0].met = True
         
         summary = get_all_stages_summary(self.checklists)
         
         # Should be rounded to 1 decimal
         self.assertIsInstance(summary["Briefing"]["percentage"], float)
-        self.assertEqual(summary["Briefing"]["percentage"], 16.7)
+        self.assertEqual(summary["Briefing"]["percentage"], 7.1)
 
 
 if __name__ == "__main__":

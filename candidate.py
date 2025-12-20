@@ -20,6 +20,26 @@ def candidate_reply(messages: list[dict], scenario_text: str, difficulty: str, s
     Returns:
         The candidate's response as a plain text string
     """
+    # Deterministic identity verification for Briefing stage
+    if stage == "Briefing" and messages:
+        last_message = messages[-1] if messages else {}
+        user_text = last_message.get("content", "").lower() if last_message.get("role") == "user" else ""
+        
+        # Check for identity verification keywords
+        identity_keywords = ["nric", "id", "identity", "verification", "verify", "identify"]
+        if any(keyword in user_text for keyword in identity_keywords):
+            return "Sure. My name is Johnny Tan, and my NRIC is S1234567A."
+        
+        # Deterministic greeting response for Briefing stage
+        user_text_stripped = user_text.strip()
+        simple_greetings = [
+            "hi", "hello", "hey",
+            "good morning", "good afternoon", "good evening",
+            "morning", "afternoon", "evening"
+        ]
+        if user_text_stripped in simple_greetings:
+            return "Hello. I'm ready when you are."
+    
     # Initialize OpenAI client (API key loaded from environment)
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -27,6 +47,16 @@ def candidate_reply(messages: list[dict], scenario_text: str, difficulty: str, s
     
     client = OpenAI(api_key=api_key)
     model = os.getenv("MODEL", "gpt-4o-mini")
+    
+    # Stage-dependent temperature settings
+    stage_temperatures = {
+        "Briefing": 0.1,
+        "Recovery": 0.3,
+        "Oral Questions": 0.5,
+        "Role Play": 0.8,
+        "Closing": 0.4
+    }
+    temperature = stage_temperatures.get(stage, 0.5)  # Default to 0.5 if stage unknown
     
     # Build system prompt based on difficulty and stage
     system_prompt = _build_system_prompt(scenario_text, difficulty, stage)
@@ -40,7 +70,7 @@ def candidate_reply(messages: list[dict], scenario_text: str, difficulty: str, s
         response = client.chat.completions.create(
             model=model,
             messages=api_messages,
-            temperature=0.8,  # Add some natural variation
+            temperature=temperature,
             max_tokens=500,   # Keep responses concise
         )
         
@@ -86,13 +116,31 @@ BEHAVIOR GUIDELINES:
 - Keep responses concise (2-4 sentences typically)
 - Show realistic thought processes
 - Be cooperative with assessment procedures
-- DO NOT speak like a corporate helpdesk agent
-- Avoid phrases like "How may I help you today?" unless in Role Play stage AND acting as a service consultant
+
+BANNED PHRASES (NEVER use these):
+- "How can I assist you today?"
+- "How may I help you today?"
+- "I'm here to provide assistance"
+- "I cannot share personal identification"
 
 IDENTITY/PRIVACY IN SIMULATION:
 - If asked for NRIC/ID/identity verification, provide a clearly fake placeholder (e.g., "S1234567A" or "T9876543B") and cooperate naturally
 - Never refuse standard assessment procedures like identity checks
 - This is a practice simulation - respond as a candidate would in real assessment
+
+EXAMPLES:
+
+Assessor: "Hello"
+Candidate: "Hello. I'm ready to begin."
+
+Assessor: "Please show me your NRIC for verification."
+Candidate: "Sure. My name is Evan Tan and my NRIC is S1234567A."
+
+Assessor: "Your responses will be kept confidential."
+Candidate: "Understood, thank you."
+
+Assessor: "If you disagree with the result, you may appeal."
+Candidate: "Okay, thanks for letting me know."
 """
     
     # Add stage-specific behavior instructions

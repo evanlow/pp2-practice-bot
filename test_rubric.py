@@ -72,8 +72,8 @@ class TestStageChecklists(unittest.TestCase):
         """Verify Briefing checklist has correct structure"""
         briefing = STAGE_CHECKLISTS["Briefing"]
         
-        # Should have 6 items as specified
-        self.assertEqual(len(briefing), 6)
+        # Should have 14 items as specified
+        self.assertEqual(len(briefing), 14)
         
         # All items should be EvidenceItem instances
         for item in briefing:
@@ -81,12 +81,10 @@ class TestStageChecklists(unittest.TestCase):
         
         # Check for specific expected items (based on requirements)
         item_ids = [item.id for item in briefing]
-        self.assertIn("briefing_identity", item_ids)
-        self.assertIn("briefing_purpose", item_ids)
-        self.assertIn("briefing_process", item_ids)
-        self.assertIn("briefing_confidentiality", item_ids)
-        self.assertIn("briefing_duration", item_ids)
-        self.assertIn("briefing_questions", item_ids)
+        # Verify we have numbered IDs from briefing_01 to briefing_14
+        for i in range(1, 15):
+            expected_id = f"briefing_{i:02d}"
+            self.assertIn(expected_id, item_ids)
     
     def test_role_play_checklist_structure(self):
         """Verify Role Play checklist has correct structure"""
