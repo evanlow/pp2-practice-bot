@@ -9,6 +9,7 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 from candidate import candidate_reply
+from pp2_state import PP2Session, PP2Stage, STAGE_ORDER
 
 
 # ============================================================================
@@ -104,11 +105,18 @@ def initialize_session_state():
     
     if "difficulty" not in st.session_state:
         st.session_state.difficulty = "Medium"
+    
+    # Initialize PP2 session state machine
+    if "pp2" not in st.session_state:
+        st.session_state.pp2 = PP2Session()
 
 
 def reset_conversation():
     """Clear the conversation history"""
     st.session_state.messages = []
+    # Also reset PP2 stage to Briefing
+    if "pp2" in st.session_state:
+        st.session_state.pp2.reset()
     st.rerun()
 
 
@@ -139,10 +147,14 @@ def handle_user_input(user_input: str):
     # Generate candidate response
     with st.chat_message("assistant"):
         with st.spinner("Candidate is thinking..."):
+            # Get current PP2 stage
+            current_stage = st.session_state.pp2.get_stage_name()
+            
             response = candidate_reply(
                 messages=st.session_state.messages,
                 scenario=SCENARIOS[st.session_state.scenario],
-                difficulty=st.session_state.difficulty
+                difficulty=st.session_state.difficulty,
+                stage=current_stage
             )
         
         st.markdown(response)
@@ -206,6 +218,41 @@ def main():
         
         st.divider()
         
+        # PP2 Stage controls
+        st.subheader("PP2 Stage")
+        
+        # Display current stage
+        st.info(f"**Current Stage:** {st.session_state.pp2.get_stage_name()}")
+        
+        # Stage navigation buttons
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("⬅️ Prev Stage", use_container_width=True):
+                st.session_state.pp2.prev_stage()
+                st.rerun()
+        with col2:
+            if st.button("Next Stage ➡️", use_container_width=True):
+                st.session_state.pp2.next_stage()
+                st.rerun()
+        
+        # Optional: Stage dropdown for jumping to specific stage
+        with st.expander("Jump to specific stage"):
+            selected_stage = st.selectbox(
+                "Select stage:",
+                options=[stage.value for stage in STAGE_ORDER],
+                index=STAGE_ORDER.index(st.session_state.pp2.current_stage),
+                key="stage_jump_selector"
+            )
+            if st.button("Jump to Stage", use_container_width=True):
+                # Find the matching PP2Stage enum
+                for stage in STAGE_ORDER:
+                    if stage.value == selected_stage:
+                        st.session_state.pp2.set_stage(stage)
+                        st.rerun()
+                        break
+        
+        st.divider()
+        
         # Reset button
         st.subheader("Controls")
         if st.button("🔄 Reset Conversation", use_container_width=True):
@@ -223,11 +270,13 @@ def main():
     st.caption("Practice your PP2 assessment skills - You play the ASSESSOR")
     
     # Display current configuration
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         st.info(f"**Scenario:** {st.session_state.scenario}")
     with col2:
         st.info(f"**Difficulty:** {st.session_state.difficulty}")
+    with col3:
+        st.info(f"**Stage:** {st.session_state.pp2.get_stage_name()}")
     
     st.divider()
     

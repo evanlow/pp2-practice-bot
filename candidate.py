@@ -7,7 +7,7 @@ import os
 from openai import OpenAI
 
 
-def candidate_reply(messages: list[dict], scenario: str, difficulty: str) -> str:
+def candidate_reply(messages: list[dict], scenario: str, difficulty: str, stage: str) -> str:
     """
     Generate a candidate reply using OpenAI API.
     
@@ -15,6 +15,7 @@ def candidate_reply(messages: list[dict], scenario: str, difficulty: str) -> str
         messages: List of message dicts with 'role' and 'content' keys
         scenario: The selected scenario description
         difficulty: One of "Easy", "Medium", or "Hard"
+        stage: Current PP2 stage (Briefing, Role Play, Oral Questions, Recovery, Closing)
     
     Returns:
         The candidate's response as a plain text string
@@ -27,8 +28,8 @@ def candidate_reply(messages: list[dict], scenario: str, difficulty: str) -> str
     client = OpenAI(api_key=api_key)
     model = os.getenv("MODEL", "gpt-4o-mini")
     
-    # Build system prompt based on difficulty
-    system_prompt = _build_system_prompt(scenario, difficulty)
+    # Build system prompt based on difficulty and stage
+    system_prompt = _build_system_prompt(scenario, difficulty, stage)
     
     # Prepare messages for API call
     api_messages = [{"role": "system", "content": system_prompt}]
@@ -51,13 +52,14 @@ def candidate_reply(messages: list[dict], scenario: str, difficulty: str) -> str
         return f"ERROR: Failed to get response from OpenAI API: {str(e)}"
 
 
-def _build_system_prompt(scenario: str, difficulty: str) -> str:
+def _build_system_prompt(scenario: str, difficulty: str, stage: str) -> str:
     """
     Build the system prompt that instructs the AI how to behave.
     
     Args:
         scenario: The scenario description
         difficulty: The difficulty level
+        stage: Current PP2 stage
     
     Returns:
         System prompt string
@@ -67,6 +69,8 @@ def _build_system_prompt(scenario: str, difficulty: str) -> str:
 
 SCENARIO: {scenario}
 
+CURRENT STAGE: {stage}
+
 BEHAVIOR GUIDELINES:
 - Act as a real professional being assessed
 - Be conversational but professional
@@ -74,6 +78,54 @@ BEHAVIOR GUIDELINES:
 - Never break character or mention being an AI
 - Keep responses concise (2-4 sentences typically)
 - Show realistic thought processes
+"""
+    
+    # Add stage-specific behavior instructions
+    stage_instructions = ""
+    if stage == "Briefing":
+        stage_instructions = """
+STAGE BEHAVIOR - Briefing:
+- You are being briefed on the scenario and assessment process
+- Listen attentively to instructions
+- You may ask 1-2 clarifying questions if something is unclear
+- Show appropriate engagement and readiness
+- Acknowledge understanding when appropriate
+"""
+    elif stage == "Role Play":
+        stage_instructions = """
+STAGE BEHAVIOR - Role Play:
+- You are now IN the scenario - act as the character described
+- Respond as that person would in the situation
+- Use first-person perspective naturally
+- Show appropriate emotions and reactions
+- Medium/Hard: Can omit some details or context initially
+"""
+    elif stage == "Oral Questions":
+        stage_instructions = """
+STAGE BEHAVIOR - Oral Questions:
+- You are OUT of role play, back to being yourself (the candidate)
+- Answer questions about your experience and reasoning
+- Be reflective and analytical
+- Medium: May give partial answers initially, expand when probed
+- Hard: More gaps, need specific follow-up questions to reveal full understanding
+"""
+    elif stage == "Recovery":
+        stage_instructions = """
+STAGE BEHAVIOR - Recovery:
+- The assessor is giving you a chance to clarify or improve previous answers
+- Only improve if the assessor probes effectively with good questions
+- Don't suddenly reveal everything - they must earn it
+- Show realistic recovery: slight improvement, not dramatic turnarounds
+- Hard: Still need skilled questioning to recover well
+"""
+    elif stage == "Closing":
+        stage_instructions = """
+STAGE BEHAVIOR - Closing:
+- Assessment is wrapping up
+- Respond to summary or next steps professionally
+- Thank the assessor appropriately
+- Show appropriate closure behavior
+- Keep it brief and natural
 """
     
     # Add difficulty-specific instructions
@@ -106,4 +158,4 @@ DIFFICULTY: Hard
 - Require skilled assessor questioning to demonstrate competence
 """
     
-    return base + difficulty_instructions
+    return base + stage_instructions + difficulty_instructions
