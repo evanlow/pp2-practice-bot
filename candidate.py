@@ -7,13 +7,13 @@ import os
 from openai import OpenAI
 
 
-def candidate_reply(messages: list[dict], scenario: str, difficulty: str, stage: str) -> str:
+def candidate_reply(messages: list[dict], scenario_text: str, difficulty: str, stage: str) -> str:
     """
     Generate a candidate reply using OpenAI API.
     
     Args:
         messages: List of message dicts with 'role' and 'content' keys
-        scenario: The selected scenario description
+        scenario_text: The selected scenario description
         difficulty: One of "Easy", "Medium", or "Hard"
         stage: Current PP2 stage (Briefing, Role Play, Oral Questions, Recovery, Closing)
     
@@ -29,7 +29,7 @@ def candidate_reply(messages: list[dict], scenario: str, difficulty: str, stage:
     model = os.getenv("MODEL", "gpt-4o-mini")
     
     # Build system prompt based on difficulty and stage
-    system_prompt = _build_system_prompt(scenario, difficulty, stage)
+    system_prompt = _build_system_prompt(scenario_text, difficulty, stage)
     
     # Prepare messages for API call
     api_messages = [{"role": "system", "content": system_prompt}]
@@ -52,12 +52,12 @@ def candidate_reply(messages: list[dict], scenario: str, difficulty: str, stage:
         return f"ERROR: Failed to get response from OpenAI API: {str(e)}"
 
 
-def _build_system_prompt(scenario: str, difficulty: str, stage: str) -> str:
+def _build_system_prompt(scenario_text: str, difficulty: str, stage: str) -> str:
     """
     Build the system prompt that instructs the AI how to behave.
     
     Args:
-        scenario: The scenario description
+        scenario_text: The scenario description
         difficulty: The difficulty level
         stage: Current PP2 stage
     
@@ -67,7 +67,7 @@ def _build_system_prompt(scenario: str, difficulty: str, stage: str) -> str:
     # Base prompt - always included
     base = f"""You are roleplaying as a candidate in a PP2 assessment. The assessor (user) will conduct a professional discussion with you.
 
-SCENARIO: {scenario}
+SCENARIO: {scenario_text}
 
 CURRENT STAGE: {stage}
 

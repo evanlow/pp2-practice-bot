@@ -11,6 +11,12 @@ from dotenv import load_dotenv
 from candidate import candidate_reply
 from pp2_state import PP2Session, PP2Stage, STAGE_ORDER
 
+# Import scenarios: try private file first, fall back to public
+try:
+    from scenarios_private import SCENARIOS
+except ImportError:
+    from scenarios import SCENARIOS
+
 
 # ============================================================================
 # CONFIGURATION & INITIALIZATION
@@ -68,27 +74,7 @@ def check_password() -> bool:
 # ============================================================================
 # SCENARIO DEFINITIONS
 # ============================================================================
-
-SCENARIOS = {
-    "Project Management Scenario": """
-You are a project manager who recently completed a challenging software migration project. 
-The project had tight deadlines, multiple stakeholders, and some unexpected technical issues.
-You successfully delivered the project on time but had to make several compromises along the way.
-""",
-    
-    "Team Leadership Scenario": """
-You are a team leader managing a cross-functional team of 8 people. 
-Recently, you had to handle a conflict between two team members that was affecting team morale.
-You implemented a resolution approach and have been monitoring the situation since then.
-""",
-    
-    "Process Improvement Scenario": """
-You identified inefficiencies in your organization's deployment process.
-You proposed and led an initiative to implement automated CI/CD pipelines.
-The initiative faced some resistance from senior team members who preferred the old manual process.
-You eventually gained buy-in and successfully implemented the changes.
-"""
-}
+# SCENARIOS imported from scenarios.py (or scenarios_private.py if it exists)
 
 
 # ============================================================================
@@ -150,9 +136,12 @@ def handle_user_input(user_input: str):
             # Get current PP2 stage
             current_stage = st.session_state.pp2.get_stage_name()
             
+            # Get scenario text (summary field)
+            scenario_text = SCENARIOS[st.session_state.scenario]["summary"]
+            
             response = candidate_reply(
                 messages=st.session_state.messages,
-                scenario=SCENARIOS[st.session_state.scenario],
+                scenario_text=scenario_text,
                 difficulty=st.session_state.difficulty,
                 stage=current_stage
             )
@@ -196,9 +185,12 @@ def main():
         )
         st.session_state.scenario = scenario
         
+        # Get scenario text (summary field from scenario dict)
+        scenario_text = SCENARIOS[scenario]["summary"]
+        
         # Show scenario description
         with st.expander("View scenario details"):
-            st.write(SCENARIOS[scenario])
+            st.write(scenario_text)
         
         st.divider()
         
@@ -269,14 +261,8 @@ def main():
     st.title("🎯 PP2 Practice Bot")
     st.caption("Practice your PP2 assessment skills - You play the ASSESSOR")
     
-    # Display current configuration
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.info(f"**Scenario:** {st.session_state.scenario}")
-    with col2:
-        st.info(f"**Difficulty:** {st.session_state.difficulty}")
-    with col3:
-        st.info(f"**Stage:** {st.session_state.pp2.get_stage_name()}")
+    # Display current configuration banner
+    st.caption(f"📋 **{st.session_state.scenario}** | 🎯 Stage: **{st.session_state.pp2.get_stage_name()}** | 💪 Difficulty: **{st.session_state.difficulty}**")
     
     st.divider()
     

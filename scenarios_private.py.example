@@ -1,0 +1,26 @@
+"""
+scenarios_private.py.example
+Template for private scenario overrides (not committed to Git)
+
+INSTRUCTIONS:
+1. Copy this file to: scenarios_private.py
+2. Modify the SCENARIOS dict below with your private/detailed scenario text
+3. The app will use scenarios_private.py if it exists, otherwise falls back to scenarios.py
+
+This allows you to keep detailed/confidential scenario text locally without committing it to Git.
+"""
+
+from scenarios import SCENARIOS
+
+# Override scenario text with your private/detailed version
+# Example: Update the summary field with more specific details
+SCENARIOS["Skills Framework Adoption (Course Consultant)"]["summary"] = """
+[Replace this with your detailed scenario text]
+
+You can include confidential or detailed information here that you don't want committed to Git.
+For example: specific customer details, internal procedures, confidential assessment criteria, etc.
+"""
+
+# You can also override other fields:
+# SCENARIOS["Skills Framework Adoption (Course Consultant)"]["candidate_role"] = "Your detailed role description"
+# SCENARIOS["Skills Framework Adoption (Course Consultant)"]["setting"] = "Your detailed setting description"
