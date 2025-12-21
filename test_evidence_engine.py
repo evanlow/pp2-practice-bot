@@ -7,7 +7,7 @@ Or: python test_evidence_engine.py
 """
 
 import unittest
-from rubric import EvidenceItem, clone_stage_checklists
+from rubric import AssessmentItem, clone_stage_checklists
 from evidence_engine import (
     update_evidence_from_assessor_text,
     get_stage_completion_percentage,
@@ -65,7 +65,7 @@ class TestUpdateEvidenceFromAssessorText(unittest.TestCase):
             if item.id == "briefing_02"
         )
         
-        self.assertTrue(identity_item.met)
+        self.assertTrue(identity_item.status == "C")
         self.assertIn("nric", identity_item.evidence_notes.lower())
         self.assertEqual(identity_item.last_updated_turn, self.turn_index)
     
@@ -86,7 +86,7 @@ class TestUpdateEvidenceFromAssessorText(unittest.TestCase):
                 item for item in checklists["Briefing"]
                 if item.id == "briefing_02"
             )
-            self.assertTrue(identity_item.met, f"Failed to match: {text}")
+            self.assertTrue(identity_item.status == "C", f"Failed to match: {text}")
     
     def test_only_updates_current_stage(self):
         """Should only update items in the current stage"""
@@ -99,12 +99,12 @@ class TestUpdateEvidenceFromAssessorText(unittest.TestCase):
         )
         
         # Briefing items should be updated
-        briefing_met = any(item.met for item in self.checklists["Briefing"])
+        briefing_met = any(item.status == "C" for item in self.checklists["Briefing"])
         self.assertTrue(briefing_met, "Briefing items should be updated")
         
         # Other stages should NOT be updated
-        roleplay_met = any(item.met for item in self.checklists["Role Play"])
-        oral_met = any(item.met for item in self.checklists["Oral Questions"])
+        roleplay_met = any(item.status == "C" for item in self.checklists["Role Play"])
+        oral_met = any(item.status == "C" for item in self.checklists["Oral Questions"])
         
         self.assertFalse(roleplay_met, "Role Play items should not be updated")
         self.assertFalse(oral_met, "Oral Questions items should not be updated")
@@ -113,7 +113,7 @@ class TestUpdateEvidenceFromAssessorText(unittest.TestCase):
         """Should not update items that are already met"""
         # Mark an item as met manually
         identity_item = self.checklists["Briefing"][0]
-        identity_item.met = True
+        identity_item.status = "C"
         identity_item.evidence_notes = "Manual mark"
         identity_item.last_updated_turn = 5
         
@@ -152,7 +152,7 @@ class TestUpdateEvidenceFromAssessorText(unittest.TestCase):
                 self.turn_index
             )
             # No items should be marked met
-            met_count = sum(1 for item in self.checklists["Briefing"] if item.met)
+            met_count = sum(1 for item in self.checklists["Briefing"] if item.status == "C")
             self.assertEqual(met_count, 0)
         except Exception as e:
             self.fail(f"Should handle empty text gracefully, but raised: {e}")
@@ -183,9 +183,9 @@ class TestUpdateEvidenceFromAssessorText(unittest.TestCase):
             if item.id == "briefing_08"
         )
         
-        self.assertTrue(process_item.met)
-        self.assertTrue(confidentiality_item.met)
-        self.assertTrue(duration_item.met)
+        self.assertTrue(process_item.status == "C")
+        self.assertTrue(confidentiality_item.status == "C")
+        self.assertTrue(duration_item.status == "C")
     
     def test_evidence_notes_format(self):
         """Evidence notes should follow expected format"""
@@ -242,8 +242,8 @@ class TestUpdateEvidenceFromAssessorText(unittest.TestCase):
             if item.id == "roleplay_recommendations"
         )
         
-        self.assertTrue(framework_item.met)
-        self.assertTrue(recommend_item.met)
+        self.assertTrue(framework_item.status == "C")
+        self.assertTrue(recommend_item.status == "C")
     
     def test_oral_questions_stage_keywords(self):
         """Test keyword detection for Oral Questions stage"""
@@ -259,7 +259,7 @@ class TestUpdateEvidenceFromAssessorText(unittest.TestCase):
             if item.id == "oral_rationale"
         )
         
-        self.assertTrue(rationale_item.met)
+        self.assertTrue(rationale_item.status == "C")
 
 
 class TestGetStageCompletionPercentage(unittest.TestCase):
@@ -278,7 +278,7 @@ class TestGetStageCompletionPercentage(unittest.TestCase):
         """Should return 100% when all items are met"""
         # Mark all items as met
         for item in self.checklists["Briefing"]:
-            item.met = True
+            item.status = "C"
         
         percentage = get_stage_completion_percentage(self.checklists, "Briefing")
         self.assertEqual(percentage, 100.0)
@@ -287,7 +287,7 @@ class TestGetStageCompletionPercentage(unittest.TestCase):
         """Should calculate correct percentage for partial completion"""
         # Briefing has 14 items, mark 7 as met (50%)
         for i in range(7):
-            self.checklists["Briefing"][i].met = True
+            self.checklists["Briefing"][i].status = "C"
 
         percentage = get_stage_completion_percentage(self.checklists, "Briefing")
         self.assertEqual(percentage, 50.0)
@@ -300,8 +300,8 @@ class TestGetStageCompletionPercentage(unittest.TestCase):
     def test_different_stages(self):
         """Test completion calculation for different stages"""
         # Role Play has 4 items, mark 2 as met (50%)
-        self.checklists["Role Play"][0].met = True
-        self.checklists["Role Play"][1].met = True
+        self.checklists["Role Play"][0].status = "C"
+        self.checklists["Role Play"][1].status = "C"
         
         percentage = get_stage_completion_percentage(self.checklists, "Role Play")
         self.assertEqual(percentage, 50.0)
@@ -358,8 +358,8 @@ class TestGetAllStagesSummary(unittest.TestCase):
     def test_met_counts_after_marking(self):
         """Met counts should update when items are marked"""
         # Mark 2 items in Briefing
-        self.checklists["Briefing"][0].met = True
-        self.checklists["Briefing"][1].met = True
+        self.checklists["Briefing"][0].status = "C"
+        self.checklists["Briefing"][1].status = "C"
         
         summary = get_all_stages_summary(self.checklists)
         
@@ -369,7 +369,7 @@ class TestGetAllStagesSummary(unittest.TestCase):
     def test_percentage_rounding(self):
         """Percentages should be rounded to 1 decimal place"""
         # Mark 1 out of 14 items (7.142...%)
-        self.checklists["Briefing"][0].met = True
+        self.checklists["Briefing"][0].status = "C"
         
         summary = get_all_stages_summary(self.checklists)
         
@@ -381,3 +381,4 @@ class TestGetAllStagesSummary(unittest.TestCase):
 if __name__ == "__main__":
     # Run tests when script is executed directly
     unittest.main(verbosity=2)
+

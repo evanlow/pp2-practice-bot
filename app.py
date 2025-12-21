@@ -107,14 +107,17 @@ def initialize_session_state():
 
 
 def reset_conversation():
-    """Clear the conversation history"""
+    """Clear the conversation history and reset all assessment state"""
     st.session_state.messages = []
-    # Also reset PP2 stage to Briefing
+    # Reset PP2 stage to Briefing
     if "pp2" in st.session_state:
         st.session_state.pp2.reset()
     # Reset evidence tracking
     st.session_state.evidence = clone_stage_checklists()
     st.session_state.turn_index = 0
+    # Clear any pending response flags
+    st.session_state.needs_response = False
+    st.session_state.pending_user_input = None
     st.rerun()
 
 
@@ -293,7 +296,7 @@ def main():
         stage_completions = {}
         for stage_name, checklist in st.session_state.evidence.items():
             total = len(checklist)
-            met = sum(1 for item in checklist if item.met)
+            met = sum(1 for item in checklist if item.status == "C")
             percentage = (met / total * 100.0) if total > 0 else 0.0
             stage_completions[stage_name] = {"met": met, "total": total, "percentage": percentage}
         
@@ -357,7 +360,7 @@ def main():
     current_stage = st.session_state.pp2.get_stage_name()
     if current_stage in st.session_state.evidence:
         checklist = st.session_state.evidence[current_stage]
-        met_count = sum(1 for item in checklist if item.met)
+        met_count = sum(1 for item in checklist if item.status == "C")
         total_count = len(checklist)
         
         with st.expander(f"📋 Evidence Checklist - {current_stage} ({met_count}/{total_count} items)", expanded=False):
@@ -378,11 +381,18 @@ def main():
                     elif idx == 8:
                         st.markdown("**Support, Rights & Assurance**")
                 
-                checkbox_icon = "✅" if item.met else "⬜"
-                st.markdown(f"{checkbox_icon} {item.text}")
+                # Display status with colored indicator
+                if item.status == "C":
+                    status_icon = "🟩 **C**"
+                else:
+                    status_icon = "🟥 **NYC**"
                 
-                # Show evidence notes if debug mode enabled and item is met
-                if st.session_state.get("show_debug", False) and item.met and item.evidence_notes:
+                # Show item with status and attempts
+                st.markdown(f"{status_icon} {item.text}")
+                st.caption(f"Attempts: {item.attempts}/3")
+                
+                # Show evidence notes only if debug mode enabled
+                if st.session_state.get("show_debug", False) and item.evidence_notes:
                     st.caption(f"   *{item.evidence_notes}*")
             
             st.divider()
@@ -392,20 +402,37 @@ def main():
             st.caption("Override evidence items manually for practice")
             
             for idx, item in enumerate(checklist):
-                # Create unique key for each checkbox
-                checkbox_key = f"manual_{current_stage}_{item.id}"
+                # Create unique keys for each control
+                status_key = f"manual_status_{current_stage}_{item.id}"
+                reset_key = f"manual_reset_{current_stage}_{item.id}"
                 
-                # Checkbox for manual toggle
-                new_state = st.checkbox(
-                    item.text,
-                    value=item.met,
-                    key=checkbox_key
-                )
+                # Create clean layout: item text, status selector, attempts, reset button
+                col1, col2, col3 = st.columns([4, 2, 1])
                 
-                # If state changed, update the item
-                if new_state != item.met:
-                    item.met = new_state
-                    item.evidence_notes = "Manual toggle"
+                with col1:
+                    st.markdown(f"**{item.text[:60]}...**" if len(item.text) > 60 else f"**{item.text}**")
+                
+                with col2:
+                    # Status selector (NYC or C)
+                    new_status = st.selectbox(
+                        "Status",
+                        options=["NYC", "C"],
+                        index=0 if item.status == "NYC" else 1,
+                        key=status_key,
+                        label_visibility="collapsed"
+                    )
+                    st.caption(f"Attempts: {item.attempts}/3")
+                
+                with col3:
+                    # Reset attempts button
+                    if st.button("↺", key=reset_key, help="Reset attempts to 0"):
+                        item.attempts = 0
+                        st.rerun()
+                
+                # If status changed, update the item
+                if new_status != item.status:
+                    item.status = new_status
+                    item.evidence_notes = "Manual override" if new_status == "C" else "Manual reset"
                     item.last_updated_turn = st.session_state.turn_index
     
     st.divider()
@@ -415,6 +442,10 @@ def main():
     
     # Generate pending response if needed (shows spinner AFTER chat displays)
     generate_pending_response()
+    
+    # Show hint for Recovery stage
+    if st.session_state.pp2.get_stage_name() == "Recovery":
+        st.info("💡 **Recovery stage:** Use probing questions (explain/clarify/demonstrate/why) to recover NYC items.")
     
     # Chat input - placed outside columns at the bottom for proper positioning
     if prompt := st.chat_input("Type your question or comment as the assessor..."):

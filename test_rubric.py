@@ -8,48 +8,50 @@ Or: python test_rubric.py
 
 import unittest
 from copy import deepcopy
-from rubric import EvidenceItem, STAGE_CHECKLISTS, clone_stage_checklists
+from rubric import AssessmentItem, STAGE_CHECKLISTS, clone_stage_checklists
 
 
-class TestEvidenceItem(unittest.TestCase):
-    """Test EvidenceItem dataclass"""
+class TestAssessmentItem(unittest.TestCase):
+    """Test AssessmentItem dataclass"""
     
     def test_evidence_item_creation_with_defaults(self):
-        """Create EvidenceItem with default values"""
-        item = EvidenceItem(id="test_id", text="Test item")
+        """Create AssessmentItem with default values"""
+        item = AssessmentItem(id="test_id", text="Test item")
         
         self.assertEqual(item.id, "test_id")
         self.assertEqual(item.text, "Test item")
-        self.assertFalse(item.met)
+        self.assertEqual(item.status, "NYC")
         self.assertEqual(item.evidence_notes, "")
         self.assertEqual(item.last_updated_turn, 0)
     
     def test_evidence_item_creation_with_all_fields(self):
-        """Create EvidenceItem with all fields specified"""
-        item = EvidenceItem(
+        """Create AssessmentItem with all fields specified"""
+        item = AssessmentItem(
             id="custom_id",
             text="Custom text",
-            met=True,
+            status="C",
+            attempts=2,
             evidence_notes="Some notes",
             last_updated_turn=5
         )
         
         self.assertEqual(item.id, "custom_id")
         self.assertEqual(item.text, "Custom text")
-        self.assertTrue(item.met)
+        self.assertEqual(item.status, "C")
+        self.assertEqual(item.attempts, 2)
         self.assertEqual(item.evidence_notes, "Some notes")
         self.assertEqual(item.last_updated_turn, 5)
     
     def test_evidence_item_mutability(self):
-        """Verify EvidenceItem fields can be modified"""
-        item = EvidenceItem(id="test", text="Test")
+        """Verify AssessmentItem fields can be modified"""
+        item = AssessmentItem(id="test", text="Test")
         
         # Modify fields
-        item.met = True
+        item.status = "C"
         item.evidence_notes = "Updated notes"
         item.last_updated_turn = 10
         
-        self.assertTrue(item.met)
+        self.assertEqual(item.status, "C")
         self.assertEqual(item.evidence_notes, "Updated notes")
         self.assertEqual(item.last_updated_turn, 10)
 
@@ -75,9 +77,9 @@ class TestStageChecklists(unittest.TestCase):
         # Should have 14 items as specified
         self.assertEqual(len(briefing), 14)
         
-        # All items should be EvidenceItem instances
+        # All items should be AssessmentItem instances
         for item in briefing:
-            self.assertIsInstance(item, EvidenceItem)
+            self.assertIsInstance(item, AssessmentItem)
         
         # Check for specific expected items (based on requirements)
         item_ids = [item.id for item in briefing]
@@ -93,9 +95,9 @@ class TestStageChecklists(unittest.TestCase):
         # Should have 4 items as specified
         self.assertEqual(len(role_play), 4)
         
-        # All items should be EvidenceItem instances
+        # All items should be AssessmentItem instances
         for item in role_play:
-            self.assertIsInstance(item, EvidenceItem)
+            self.assertIsInstance(item, AssessmentItem)
         
         # Check for specific expected items
         item_ids = [item.id for item in role_play]
@@ -111,9 +113,9 @@ class TestStageChecklists(unittest.TestCase):
         # Should have 4 items as specified
         self.assertEqual(len(oral), 4)
         
-        # All items should be EvidenceItem instances
+        # All items should be AssessmentItem instances
         for item in oral:
-            self.assertIsInstance(item, EvidenceItem)
+            self.assertIsInstance(item, AssessmentItem)
         
         # Check for specific expected items
         item_ids = [item.id for item in oral]
@@ -129,9 +131,9 @@ class TestStageChecklists(unittest.TestCase):
         # Should have 3 items as specified
         self.assertEqual(len(recovery), 3)
         
-        # All items should be EvidenceItem instances
+        # All items should be AssessmentItem instances
         for item in recovery:
-            self.assertIsInstance(item, EvidenceItem)
+            self.assertIsInstance(item, AssessmentItem)
         
         # Check for specific expected items
         item_ids = [item.id for item in recovery]
@@ -146,9 +148,9 @@ class TestStageChecklists(unittest.TestCase):
         # Should have 3 items as specified
         self.assertEqual(len(closing), 3)
         
-        # All items should be EvidenceItem instances
+        # All items should be AssessmentItem instances
         for item in closing:
-            self.assertIsInstance(item, EvidenceItem)
+            self.assertIsInstance(item, AssessmentItem)
         
         # Check for specific expected items
         item_ids = [item.id for item in closing]
@@ -169,7 +171,7 @@ class TestStageChecklists(unittest.TestCase):
         """Verify all checklist items start with met=False"""
         for stage_name, checklist in STAGE_CHECKLISTS.items():
             for item in checklist:
-                self.assertFalse(item.met, f"Item {item.id} in {stage_name} should start unmet")
+                self.assertFalse(item.status == "C", f"Item {item.id} in {stage_name} should start unmet")
     
     def test_item_ids_are_unique_per_stage(self):
         """Verify no duplicate item IDs within each stage"""
@@ -210,13 +212,13 @@ class TestCloneStageChecklists(unittest.TestCase):
         cloned = clone_stage_checklists()
         
         # Modify the clone
-        cloned["Briefing"][0].met = True
+        cloned["Briefing"][0].status = "C"
         cloned["Briefing"][0].evidence_notes = "Modified"
         cloned["Briefing"][0].last_updated_turn = 99
         
         # Original should be unchanged
         original_item = STAGE_CHECKLISTS["Briefing"][0]
-        self.assertFalse(original_item.met, "Original was modified!")
+        self.assertFalse(original_item.status == "C", "Original was modified!")
         self.assertEqual(original_item.evidence_notes, "")
         self.assertEqual(original_item.last_updated_turn, 0)
     
@@ -226,16 +228,16 @@ class TestCloneStageChecklists(unittest.TestCase):
         clone2 = clone_stage_checklists()
         
         # Modify clone1
-        clone1["Role Play"][0].met = True
+        clone1["Role Play"][0].status = "C"
         clone1["Role Play"][0].evidence_notes = "Clone 1 modification"
         
         # Modify clone2 differently
-        clone2["Role Play"][0].met = False
+        clone2["Role Play"][0].status = "NYC"
         clone2["Role Play"][0].evidence_notes = "Clone 2 modification"
         
         # Verify they're different
-        self.assertTrue(clone1["Role Play"][0].met)
-        self.assertFalse(clone2["Role Play"][0].met)
+        self.assertEqual(clone1["Role Play"][0].status, "C")
+        self.assertEqual(clone2["Role Play"][0].status, "NYC")
         self.assertEqual(clone1["Role Play"][0].evidence_notes, "Clone 1 modification")
         self.assertEqual(clone2["Role Play"][0].evidence_notes, "Clone 2 modification")
     
@@ -250,7 +252,7 @@ class TestCloneStageChecklists(unittest.TestCase):
             for i in range(len(original_checklist)):
                 self.assertEqual(cloned_checklist[i].id, original_checklist[i].id)
                 self.assertEqual(cloned_checklist[i].text, original_checklist[i].text)
-                self.assertEqual(cloned_checklist[i].met, original_checklist[i].met)
+                self.assertEqual(cloned_checklist[i].status == "C", original_checklist[i].status == "C")
     
     def test_clone_is_different_object(self):
         """Cloned dict should be a different object than original"""
@@ -263,7 +265,7 @@ class TestCloneStageChecklists(unittest.TestCase):
         for stage_name in STAGE_CHECKLISTS:
             self.assertIsNot(cloned[stage_name], STAGE_CHECKLISTS[stage_name])
         
-        # Different EvidenceItem objects
+        # Different AssessmentItem objects
         self.assertIsNot(cloned["Briefing"][0], STAGE_CHECKLISTS["Briefing"][0])
 
 
