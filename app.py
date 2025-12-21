@@ -123,6 +123,11 @@ def display_chat_history():
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+    
+    # Show "thinking" indicator if response is pending
+    if st.session_state.get("needs_response", False):
+        with st.chat_message("assistant"):
+            st.markdown("*Thinking...*")
 
 
 def handle_user_input(user_input: str):
@@ -135,25 +140,19 @@ def handle_user_input(user_input: str):
     # Increment turn index
     st.session_state.turn_index += 1
     
-    # Update evidence tracking based on assessor's text
-    current_stage = st.session_state.pp2.get_stage_name()
-    update_evidence_from_assessor_text(
-        st.session_state.evidence,
-        current_stage,
-        user_input,
-        st.session_state.turn_index
-    )
-    
-    # Add user message to history
+    # Add user message to history immediately (defer evidence processing)
     st.session_state.messages.append({
         "role": "user",
         "content": user_input
     })
     
+    # Store the input for evidence processing during response generation
+    st.session_state.pending_user_input = user_input
+    
     # Flag that we need to generate a response
     st.session_state.needs_response = True
     
-    # Rerun to show user message immediately
+    # Rerun to show user message immediately (no blocking operations before this)
     st.rerun()
 
 
@@ -165,17 +164,27 @@ def generate_pending_response():
     # Clear the flag
     st.session_state.needs_response = False
     
-    # Generate candidate response (with spinner feedback)
-    with st.spinner("Candidate is thinking..."):
+    # Process evidence from the pending user input (deferred from handle_user_input)
+    if st.session_state.get("pending_user_input"):
         current_stage = st.session_state.pp2.get_stage_name()
-        scenario_text = SCENARIOS[st.session_state.scenario]["summary"]
-        
-        response = candidate_reply(
-            messages=st.session_state.messages,
-            scenario_text=scenario_text,
-            difficulty=st.session_state.difficulty,
-            stage=current_stage
+        update_evidence_from_assessor_text(
+            st.session_state.evidence,
+            current_stage,
+            st.session_state.pending_user_input,
+            st.session_state.turn_index
         )
+        st.session_state.pending_user_input = None  # Clear after processing
+    
+    # Generate candidate response (thinking indicator already shown in chat)
+    current_stage = st.session_state.pp2.get_stage_name()
+    scenario_text = SCENARIOS[st.session_state.scenario]["summary"]
+    
+    response = candidate_reply(
+        messages=st.session_state.messages,
+        scenario_text=scenario_text,
+        difficulty=st.session_state.difficulty,
+        stage=current_stage
+    )
     
     # Add candidate response to history
     st.session_state.messages.append({
