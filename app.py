@@ -10,8 +10,11 @@ import streamlit as st
 from dotenv import load_dotenv
 from candidate import candidate_reply
 from pp2_state import PP2Session, PP2Stage, STAGE_ORDER
-from rubric import clone_stage_checklists
+from rubric import clone_stage_checklists, STAGE_CHECKLISTS
 from evidence_engine import update_evidence_from_assessor_text
+from pp2_record import Criterion, GRO, AssessmentRow
+from pp2_gro import GROEntry, CriterionRecord
+import yaml
 
 # Import scenarios: try private file first, fall back to public
 try:
@@ -83,6 +86,48 @@ def check_password() -> bool:
 # CHAT INTERFACE FUNCTIONS
 # ============================================================================
 
+def load_roleplay_criteria() -> list[dict]:
+    """
+    Load roleplay criteria from YAML in st.secrets.
+    
+    Returns:
+        List of criteria dicts with code, category, title, items, optional any_of
+    
+    Raises:
+        Exception if YAML is missing or invalid
+    """
+    if not hasattr(st, "secrets") or "ROLEPLAY_CRITERIA_YAML" not in st.secrets:
+        raise Exception("ROLEPLAY_CRITERIA_YAML not found in st.secrets")
+    
+    try:
+        criteria_yaml = st.secrets["ROLEPLAY_CRITERIA_YAML"]
+        data = yaml.safe_load(criteria_yaml)
+        
+        if data is None:
+            raise Exception("YAML parsing returned None - empty or invalid YAML content")
+        
+        if not isinstance(data, dict) or "criteria" not in data:
+            raise Exception("YAML must contain 'criteria' key with list of criteria")
+        
+        criteria_list = data["criteria"]
+        if not isinstance(criteria_list, list):
+            raise Exception("'criteria' must be a list")
+        
+        # Validate each criterion has required fields
+        for criterion in criteria_list:
+            if "code" not in criterion:
+                raise Exception(f"Criterion missing 'code' field: {criterion}")
+            if "title" not in criterion:
+                raise Exception(f"Criterion {criterion.get('code')} missing 'title' field")
+            if "items" not in criterion:
+                raise Exception(f"Criterion {criterion.get('code')} missing 'items' field")
+        
+        return criteria_list
+    except yaml.YAMLError as e:
+        raise Exception(f"YAML parsing error: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Error loading roleplay criteria: {str(e)}")
+
 def initialize_session_state():
     """Initialize session state variables if they don't exist"""
     if "messages" not in st.session_state:
@@ -104,6 +149,81 @@ def initialize_session_state():
     
     if "turn_index" not in st.session_state:
         st.session_state.turn_index = 0
+    
+    # Initialize roleplay_records dict with GRO enforcement structures
+    if "roleplay_records" not in st.session_state:
+        st.session_state.roleplay_records = {}
+    
+    # Load criteria from YAML
+    try:
+        criteria_list = load_roleplay_criteria()
+        criteria_codes = [c["code"] for c in criteria_list]
+        
+        # Remove old RP1-RP4 keys if they exist (obsolete format)
+        obsolete_keys = [k for k in st.session_state.roleplay_records.keys() if k.startswith("RP")]
+        for old_key in obsolete_keys:
+            del st.session_state.roleplay_records[old_key]
+        
+        # Add missing codes to roleplay_records (keeps existing records)
+        for code in criteria_codes:
+            if code not in st.session_state.roleplay_records:
+                st.session_state.roleplay_records[code] = CriterionRecord(code=code)
+    except Exception as e:
+        # Don't fall back silently - show error
+        st.error(f"❌ Failed to load roleplay criteria: {str(e)}")
+        st.stop()
+    
+    # Initialize active GRO code for automatic capture
+    if "active_gro_code" not in st.session_state:
+        st.session_state.active_gro_code = None
+        # Set to first NYC item missing GRO if any exist
+        incomplete = get_nyc_codes_missing_gro()
+        if incomplete:
+            st.session_state.active_gro_code = incomplete[0]
+
+
+def get_nyc_codes_missing_gro():
+    """Get list of NYC criterion codes with missing or incomplete GRO.
+    
+    Returns:
+        List of criterion codes where status is NYC and GRO is missing or incomplete.
+    """
+    if "roleplay_records" not in st.session_state:
+        return []
+    
+    missing = []
+    for code, record in st.session_state.roleplay_records.items():
+        if record.status == "NYC":
+            if record.gro is None or not record.gro.completed:
+                missing.append(code)
+    
+    return missing
+
+
+def update_active_gro_code():
+    """Update active_gro_code to next NYC item needing GRO, or None if all complete."""
+    incomplete = get_nyc_codes_missing_gro()
+    if incomplete:
+        st.session_state.active_gro_code = incomplete[0]
+    else:
+        st.session_state.active_gro_code = None
+
+
+def can_advance_stage(from_stage: str) -> tuple[bool, list[str]]:
+    """Check if can advance from current stage (NYC GRO validation).
+    
+    Args:
+        from_stage: Current stage name
+    
+    Returns:
+        Tuple of (can_advance: bool, missing_codes: list[str])
+    """
+    # Only enforce for Role Play and Recovery stages
+    if from_stage not in ["Role Play", "Recovery"]:
+        return True, []
+    
+    missing = get_nyc_codes_missing_gro()
+    return len(missing) == 0, missing
 
 
 def reset_conversation():
@@ -120,6 +240,28 @@ def reset_conversation():
     st.session_state.pending_user_input = None
     st.rerun()
 
+
+def reset_roleplay_records():
+    """Clear and rebuild roleplay_records from YAML."""
+    st.session_state.roleplay_records = {}
+    st.session_state.active_gro_code = None
+    
+    # Rebuild from YAML
+    try:
+        criteria_list = load_roleplay_criteria()
+        criteria_codes = [c["code"] for c in criteria_list]
+        
+        for code in criteria_codes:
+            st.session_state.roleplay_records[code] = CriterionRecord(code=code)
+        
+        # Set active_gro_code to first NYC if any
+        incomplete = get_nyc_codes_missing_gro()
+        if incomplete:
+            st.session_state.active_gro_code = incomplete[0]
+    except Exception:
+        pass  # Will show error on next render
+    
+    st.rerun()
 
 def display_chat_history():
     """Display all messages in the chat history"""
@@ -144,10 +286,20 @@ def handle_user_input(user_input: str):
     st.session_state.turn_index += 1
     
     # Add user message to history immediately (defer evidence processing)
+    user_msg_index = len(st.session_state.messages)
     st.session_state.messages.append({
         "role": "user",
         "content": user_input
     })
+    
+    # Auto-capture GRO probe if active GRO exists and probe not yet captured
+    if st.session_state.get("active_gro_code"):
+        code = st.session_state.active_gro_code
+        if code in st.session_state.roleplay_records:
+            record = st.session_state.roleplay_records[code]
+            if record.gro is not None and not record.gro.probe_text:
+                record.gro.probe_text = user_input
+                record.gro.probe_turn = user_msg_index
     
     # Store the input for evidence processing during response generation
     st.session_state.pending_user_input = user_input
@@ -157,6 +309,17 @@ def handle_user_input(user_input: str):
     
     # Rerun to show user message immediately (no blocking operations before this)
     st.rerun()
+
+
+def get_incomplete_gro_criteria():
+    """Check for NYC criteria with missing or incomplete GRO records.
+    
+    Returns:
+        List of criterion codes (e.g., ['RP1', 'RP3']) that need GRO completion,
+        or empty list if all NYC criteria have completed GROs.
+    """
+    # Use the newer get_nyc_codes_missing_gro() which checks roleplay_records
+    return get_nyc_codes_missing_gro()
 
 
 def generate_pending_response():
@@ -182,21 +345,134 @@ def generate_pending_response():
     current_stage = st.session_state.pp2.get_stage_name()
     scenario_text = SCENARIOS[st.session_state.scenario]["summary"]
     
+    # Get pending GRO codes for Role Play stage
+    pending_gro_codes = []
+    if current_stage == "Role Play":
+        pending_gro_codes = get_nyc_codes_missing_gro()
+    
     response = candidate_reply(
         messages=st.session_state.messages,
         scenario_text=scenario_text,
         difficulty=st.session_state.difficulty,
-        stage=current_stage
+        stage=current_stage,
+        pending_gro_codes=pending_gro_codes
     )
     
     # Add candidate response to history
+    response_msg_index = len(st.session_state.messages)
     st.session_state.messages.append({
         "role": "assistant",
         "content": response
     })
     
+    # Auto-capture GRO response if active GRO exists with probe but no response yet
+    if st.session_state.get("active_gro_code"):
+        code = st.session_state.active_gro_code
+        if code in st.session_state.roleplay_records:
+            record = st.session_state.roleplay_records[code]
+            if record.gro is not None and record.gro.probe_text and not record.gro.response_text:
+                record.gro.response_text = response
+                record.gro.response_turn = response_msg_index
+    
     # Rerun to display updated chat history
     st.rerun()
+
+
+def generate_summary_text():
+    """Generate summary record as plain text."""
+    if "roleplay_records" not in st.session_state:
+        return "No assessment record available."
+    
+    # Load criteria for titles
+    try:
+        criteria_list = load_roleplay_criteria()
+        criteria_map = {c["code"]: c for c in criteria_list}
+    except Exception:
+        criteria_map = {}
+    
+    lines = []
+    lines.append("="*70)
+    lines.append("PP2 PRACTICE BOT - ROLE PLAY ASSESSMENT SUMMARY")
+    lines.append("="*70)
+    lines.append(f"Scenario: {st.session_state.scenario}")
+    lines.append(f"Difficulty: {st.session_state.difficulty}")
+    lines.append(f"Date: December 22, 2025")
+    lines.append("="*70)
+    lines.append("")
+    
+    for code, record in sorted(st.session_state.roleplay_records.items()):
+        criterion = criteria_map.get(code, {})
+        title = criterion.get("title", "Unknown criterion")
+        
+        lines.append(f"Criterion: {code}")
+        lines.append(f"Description: {title}")
+        lines.append(f"Final Status: {record.status}")
+        lines.append(f"Evidence Note: {record.evidence_note if record.evidence_note else 'None'}")
+        
+        if record.status == "NYC" and record.gro is not None and record.gro.gap:
+            lines.append("")
+            lines.append("  GRO Record:")
+            lines.append(f"    Gap: {record.gro.gap}")
+            lines.append(f"    Probe: {record.gro.probe_text}")
+            reply_excerpt = record.gro.response_text
+            lines.append(f"    Candidate Reply: {reply_excerpt[:100]}..." if len(reply_excerpt) > 100 else f"    Candidate Reply: {reply_excerpt}")
+            lines.append(f"    Outcome: {record.gro.outcome}")
+            lines.append(f"    Completed: {'Yes' if record.gro.completed else 'No'}")
+        
+        lines.append("-"*70)
+        lines.append("")
+    
+    return "\n".join(lines)
+
+
+def generate_summary_json():
+    """Generate summary record as JSON."""
+    import json
+    
+    if "roleplay_records" not in st.session_state:
+        return json.dumps({"error": "No assessment record available"}, indent=2)
+    
+    # Load criteria for titles
+    try:
+        criteria_list = load_roleplay_criteria()
+        criteria_map = {c["code"]: c for c in criteria_list}
+    except Exception:
+        criteria_map = {}
+    
+    summary = {
+        "metadata": {
+            "scenario": st.session_state.scenario,
+            "difficulty": st.session_state.difficulty,
+            "date": "2025-12-22",
+            "stage": st.session_state.pp2.get_stage_name()
+        },
+        "criteria": []
+    }
+    
+    for code, record in sorted(st.session_state.roleplay_records.items()):
+        criterion = criteria_map.get(code, {})
+        
+        criterion_data = {
+            "code": code,
+            "description": criterion.get("title", "Unknown criterion"),
+            "status": record.status,
+            "evidence_note": record.evidence_note
+        }
+        
+        if record.status == "NYC" and record.gro is not None and record.gro.gap:
+            criterion_data["gro"] = {
+                "gap": record.gro.gap,
+                "probe": record.gro.probe_text,
+                "candidate_reply_excerpt": record.gro.response_text,
+                "outcome": record.gro.outcome,
+                "completed": record.gro.completed,
+                "probe_turn": record.gro.probe_turn,
+                "response_turn": record.gro.response_turn
+            }
+        
+        summary["criteria"].append(criterion_data)
+    
+    return json.dumps(summary, indent=2)
 
 
 # ============================================================================
@@ -268,6 +544,19 @@ def main():
                 st.rerun()
         with col2:
             if st.button("Next Stage ➡️", use_container_width=True):
+                current_stage = st.session_state.pp2.get_stage_name()
+                
+                # Validate GRO completion for Role Play and Recovery stages
+                can_advance, missing = can_advance_stage(current_stage)
+                if not can_advance:
+                    st.error(
+                        f"❌ Cannot advance from {current_stage} stage. "
+                        f"Recovery required (GRO not completed) for: {', '.join(missing)}"
+                    )
+                    if st.session_state.get("active_gro_code"):
+                        st.info(f"👉 Suggested: Complete GRO for criterion **{st.session_state.active_gro_code}**")
+                    st.stop()
+                
                 st.session_state.pp2.next_stage()
                 st.rerun()
         
@@ -280,6 +569,20 @@ def main():
                 key="stage_jump_selector"
             )
             if st.button("Jump to Stage", use_container_width=True):
+                current_stage = st.session_state.pp2.get_stage_name()
+                
+                # Validate GRO completion if leaving Role Play or Recovery
+                if current_stage in ["Role Play", "Recovery"] and selected_stage != current_stage:
+                    can_advance, missing = can_advance_stage(current_stage)
+                    if not can_advance:
+                        st.error(
+                            f"❌ Cannot leave {current_stage} stage. "
+                            f"Recovery required (GRO not completed) for: {', '.join(missing)}"
+                        )
+                        if st.session_state.get("active_gro_code"):
+                            st.info(f"👉 Suggested: Complete GRO for criterion **{st.session_state.active_gro_code}**")
+                        st.stop()
+                
                 # Find the matching PP2Stage enum
                 for stage in STAGE_ORDER:
                     if stage.value == selected_stage:
@@ -323,6 +626,46 @@ def main():
         
         st.divider()
         
+        # Recovery Queue - show during Role Play and Recovery stages
+        current_stage = st.session_state.pp2.get_stage_name()
+        if current_stage in ["Role Play", "Recovery"]:
+            pending_codes = get_nyc_codes_missing_gro()
+            if pending_codes:
+                st.subheader("🔄 Recovery Queue")
+                st.caption(f"{len(pending_codes)} NYC item(s) need recovery")
+                
+                # Get titles from YAML criteria
+                try:
+                    criteria_list = load_roleplay_criteria()
+                    code_to_title = {}
+                    for criterion in criteria_list:
+                        code = criterion["code"]
+                        title = criterion["title"]
+                        # Extract short title (first 30 chars)
+                        short_title = title[:30] + "..." if len(title) > 30 else title
+                        code_to_title[code] = short_title
+                except Exception:
+                    code_to_title = {}
+                
+                active_code = st.session_state.get("active_gro_code")
+                
+                for code in pending_codes:
+                    title = code_to_title.get(code, "Unknown")
+                    
+                    # Highlight active code
+                    if code == active_code:
+                        st.info(f"👉 **{code}**: {title}")
+                    else:
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.caption(f"**{code}**: {title}")
+                        with col2:
+                            if st.button("Set", key=f"set_active_{code}", use_container_width=True):
+                                st.session_state.active_gro_code = code
+                                st.rerun()
+                
+                st.divider()
+        
         # Debug options
         st.subheader("Debug")
         show_debug = st.checkbox(
@@ -340,6 +683,271 @@ def main():
         if st.button("🔄 Reset Conversation", use_container_width=True):
             reset_conversation()
         
+        if st.button("🗑️ Reset Role Play Record", use_container_width=True):
+            reset_roleplay_records()
+        
+        st.divider()
+        
+        # Role Play Assessment Record
+        st.subheader("📋 Role Play Assessment Record")
+        
+        if st.session_state.pp2.get_stage_name() == "Role Play":
+            st.caption("Track competency assessment with GRO records")
+            
+            # Load criteria for display
+            try:
+                criteria_list = load_roleplay_criteria()
+            except Exception as e:
+                st.error(f"❌ Failed to load criteria: {str(e)}")
+                st.stop()
+            
+            # Warning banner if NYC criteria lack completed GRO
+            can_advance, missing = can_advance_stage("Role Play")
+            if not can_advance:
+                st.warning(
+                    f"⚠️ **NYC detected.** You must complete GRO (Gap, Recover, Outcome) for {len(missing)} "
+                    f"{'criterion' if len(missing) == 1 else 'criteria'} before proceeding: **{', '.join(missing)}**"
+                )
+                if st.session_state.get("active_gro_code"):
+                    st.info(f"👉 Currently working on: **{st.session_state.active_gro_code}**")
+            
+            # Show item counter
+            total_criteria = len(criteria_list)
+            competent_count = sum(1 for r in st.session_state.roleplay_records.values() if r.status == "C")
+            st.caption(f"**Assessment Progress:** {competent_count}/{total_criteria} items")
+            
+            # Create criteria map for lookup
+            criteria_map = {c["code"]: c for c in criteria_list}
+            
+            for code, record in sorted(st.session_state.roleplay_records.items()):
+                criterion = criteria_map.get(code)
+                if not criterion:
+                    continue  # Skip if criterion not in YAML
+                
+                # Determine GRO status for display
+                gro_status_label = ""
+                if record.status == "NYC":
+                    if record.gro is None or record.gro.gap == "":
+                        gro_status_label = " | 🔴 GRO: Not started"
+                    elif record.gro.completed:
+                        gro_status_label = " | 🟢 GRO: Completed"
+                    else:
+                        gro_status_label = " | 🟡 GRO: In progress"
+                
+                # Build title with category if present
+                title_display = f"{code}: {criterion['title']}"
+                if "category" in criterion:
+                    title_display = f"{code} ({criterion['category']}): {criterion['title']}"
+                
+                with st.expander(f"{title_display[:60]}...{gro_status_label}", expanded=False):
+                    # Display criterion details
+                    st.markdown(f"**{criterion['title']}**")
+                    
+                    # Show items as bullet list
+                    st.markdown("**Items to assess:**")
+                    for item in criterion.get("items", []):
+                        st.markdown(f"- {item}")
+                    
+                    # Show any_of requirement if present
+                    if "any_of" in criterion:
+                        st.caption(f"ℹ️ Need ANY {criterion['any_of']} of the above items")
+                    
+                    st.divider()
+                    # Status selection
+                    status_key = f"rp_status_{code}"
+                    current_status = st.radio(
+                        "Assessment Status",
+                        options=["C", "NYC"],
+                        index=0 if record.status == "C" else 1,
+                        key=status_key,
+                        horizontal=True
+                    )
+                    
+                    # Update status if changed
+                    if current_status != record.status:
+                        record.status = current_status
+                        # If toggled to NYC, set as active GRO code for capture
+                        if current_status == "NYC":
+                            st.session_state.active_gro_code = code
+                            # Initialize GRO if needed
+                            if record.gro is None:
+                                record.gro = GROEntry()
+                        # If toggled to C, update active GRO to next NYC needing GRO
+                        elif st.session_state.active_gro_code == code:
+                            update_active_gro_code()
+                        st.rerun()
+                    
+                    # Evidence note
+                    evidence_key = f"rp_evidence_{code}"
+                    evidence_note = st.text_area(
+                        "Evidence Note",
+                        value=record.evidence_note,
+                        key=evidence_key,
+                        height=68
+                    )
+                    record.evidence_note = evidence_note
+                    
+                    # GRO section for NYC items
+                    if record.status == "NYC":
+                        st.divider()
+                        st.markdown("**Gap-Recovery-Outcome (GRO)**")
+                        
+                        # Initialize GRO if needed
+                        if record.gro is None:
+                            record.gro = GROEntry()
+                        
+                        # Gap field
+                        gap_key = f"rp_gap_{code}"
+                        gap_text = st.text_area(
+                            "1. Gap (Required)",
+                            value=record.gro.gap,
+                            key=gap_key,
+                            height=68,
+                            help="Describe what was missing or insufficient"
+                        )
+                        record.gro.gap = gap_text
+                        
+                        # Probe field (read-only display)
+                        st.markdown("**2. Probe Question**")
+                        if record.gro.probe_text:
+                            st.text_area(
+                                "Probe",
+                                value=record.gro.probe_text,
+                                key=f"rp_probe_display_{code}",
+                                height=68,
+                                disabled=True,
+                                label_visibility="collapsed"
+                            )
+                        else:
+                            st.info("Not captured yet (ask a probing question in chat)")
+                        
+                        # Response field (read-only display)
+                        st.markdown("**3. Candidate Response**")
+                        if record.gro.response_text:
+                            st.text_area(
+                                "Response",
+                                value=record.gro.response_text,
+                                key=f"rp_response_display_{code}",
+                                height=68,
+                                disabled=True,
+                                label_visibility="collapsed"
+                            )
+                        else:
+                            st.info("Not captured yet")
+                        
+                        # Outcome selection
+                        st.markdown("**4. Outcome**")
+                        outcome_key = f"rp_outcome_{code}"
+                        outcome_options = ["Recovered to C", "Still NYC"]
+                        outcome_index = 0 if record.gro.outcome == "Recovered to C" else 1
+                        outcome = st.radio(
+                            "Outcome",
+                            options=outcome_options,
+                            index=outcome_index,
+                            key=outcome_key,
+                            horizontal=True,
+                            label_visibility="collapsed"
+                        )
+                        record.gro.outcome = outcome
+                        
+                        # Mark GRO Complete button
+                        st.divider()
+                        complete_key = f"rp_complete_{code}"
+                        if st.button("✅ Mark GRO Complete", key=complete_key, type="primary"):
+                            # Validation
+                            errors = []
+                            if not record.gro.gap.strip():
+                                errors.append("Gap field is required")
+                            if not record.gro.probe_text.strip():
+                                errors.append("Probe question not captured (ask a probing question in chat)")
+                            if not record.gro.response_text.strip():
+                                errors.append("Candidate response not captured yet")
+                            if not record.gro.outcome:
+                                errors.append("Outcome must be selected")
+                            
+                            if errors:
+                                for error in errors:
+                                    st.error(f"❌ {error}")
+                            else:
+                                # Mark as completed
+                                record.gro.completed = True
+                                if outcome == "Recovered to C":
+                                    record.status = "C"
+                                # Move to next NYC item needing GRO
+                                if st.session_state.active_gro_code == code:
+                                    update_active_gro_code()
+                                st.success("✅ GRO marked as complete!")
+                                st.rerun()
+        else:
+            st.info("Assessment record available in Role Play stage")
+        
+        st.divider()
+        
+        # Generate Summary Record section
+        st.subheader("📄 Generate Summary Record")
+        
+        # Check for incomplete GROs before allowing summary generation
+        current_stage = st.session_state.pp2.get_stage_name()
+        can_generate, missing = can_advance_stage(current_stage)
+        
+        if not can_generate:
+            st.warning(
+                f"⚠️ Cannot generate summary. "
+                f"Complete GRO records for: **{', '.join(missing)}**"
+            )
+        else:
+            st.info("✅ All NYC criteria have completed GRO records")
+        
+        # Generate Summary button
+        if st.button("📊 Generate Summary Record", use_container_width=True, type="primary"):
+            # Validate GRO completion
+            can_generate, missing = can_advance_stage(current_stage)
+            if not can_generate:
+                st.error(
+                    f"❌ Cannot generate summary. "
+                    f"Recovery required (GRO not completed) for: {', '.join(missing)}"
+                )
+                st.stop()
+            
+            # Generate the summaries
+            st.session_state.summary_generated = True
+            st.session_state.summary_text = generate_summary_text()
+            st.session_state.summary_json = generate_summary_json()
+            st.success("✅ Summary generated successfully!")
+            st.rerun()
+        
+        # Display summary if generated
+        if st.session_state.get("summary_generated", False):
+            st.divider()
+            
+            # Tab view for text and JSON
+            tab1, tab2 = st.tabs(["📄 Text Format", "🔧 JSON Format"])
+            
+            with tab1:
+                st.text_area(
+                    "Summary (Text)",
+                    value=st.session_state.summary_text,
+                    height=400,
+                    label_visibility="collapsed"
+                )
+                st.download_button(
+                    label="⬇️ Download as TXT",
+                    data=st.session_state.summary_text,
+                    file_name="pp2_assessment_summary.txt",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+            
+            with tab2:
+                st.code(st.session_state.summary_json, language="json")
+                st.download_button(
+                    label="⬇️ Download as JSON",
+                    data=st.session_state.summary_json,
+                    file_name="pp2_assessment_summary.json",
+                    mime="application/json",
+                    use_container_width=True
+                )
+        
         # Info section
         st.divider()
         st.caption("💡 **Tip:** You are the assessor. Ask probing questions to evaluate the candidate's experience and competence.")
@@ -356,9 +964,48 @@ def main():
     
     st.divider()
     
-    # Evidence checklist in expander (collapsible)
+    # Role Play stage: Show status summary instead of generic checklist
     current_stage = st.session_state.pp2.get_stage_name()
-    if current_stage in st.session_state.evidence:
+    if current_stage == "Role Play":
+        # Load criteria for counting
+        try:
+            criteria_list = load_roleplay_criteria()
+            total_criteria = len(criteria_list)
+            
+            # Count statuses
+            c_count = sum(1 for r in st.session_state.roleplay_records.values() if r.status == "C")
+            nyc_count = sum(1 for r in st.session_state.roleplay_records.values() if r.status == "NYC")
+            
+            # Count GRO pending
+            pending_gro = get_nyc_codes_missing_gro()
+            gro_pending_count = len(pending_gro)
+            
+            # Status summary
+            with st.expander("📊 Role Play Status Summary", expanded=True):
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total", total_criteria)
+                with col2:
+                    st.metric("Competent", c_count)
+                with col3:
+                    st.metric("NYC", nyc_count)
+                with col4:
+                    st.metric("GRO Pending", gro_pending_count)
+                
+                # Warning if GRO pending
+                if gro_pending_count > 0:
+                    st.divider()
+                    st.warning(
+                        f"⚠️ **{gro_pending_count} NYC {'item' if gro_pending_count == 1 else 'items'} need GRO completion** before you can advance.\n\n"
+                        f"Codes: **{', '.join(pending_gro)}**"
+                    )
+                    if st.session_state.get("active_gro_code"):
+                        st.info(f"👉 Currently working on: **{st.session_state.active_gro_code}**")
+        except Exception as e:
+            st.error(f"Failed to load criteria: {str(e)}")
+    
+    # Other stages: Show evidence checklist
+    elif current_stage in st.session_state.evidence:
         checklist = st.session_state.evidence[current_stage]
         met_count = sum(1 for item in checklist if item.status == "C")
         total_count = len(checklist)

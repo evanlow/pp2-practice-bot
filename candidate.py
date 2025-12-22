@@ -7,7 +7,13 @@ import os
 from openai import OpenAI
 
 
-def candidate_reply(messages: list[dict], scenario_text: str, difficulty: str, stage: str) -> str:
+def candidate_reply(
+    messages: list[dict],
+    scenario_text: str,
+    difficulty: str,
+    stage: str,
+    pending_gro_codes: list[str] = None
+) -> str:
     """
     Generate a candidate reply using OpenAI API.
     
@@ -16,6 +22,7 @@ def candidate_reply(messages: list[dict], scenario_text: str, difficulty: str, s
         scenario_text: The selected scenario description
         difficulty: One of "Easy", "Medium", or "Hard"
         stage: Current PP2 stage (Briefing, Role Play, Oral Questions, Recovery, Closing)
+        pending_gro_codes: List of NYC criterion codes needing recovery (optional)
     
     Returns:
         The candidate's response as a plain text string
@@ -59,7 +66,7 @@ def candidate_reply(messages: list[dict], scenario_text: str, difficulty: str, s
     temperature = stage_temperatures.get(stage, 0.5)  # Default to 0.5 if stage unknown
     
     # Build system prompt based on difficulty and stage
-    system_prompt = _build_system_prompt(scenario_text, difficulty, stage)
+    system_prompt = _build_system_prompt(scenario_text, difficulty, stage, pending_gro_codes)
     
     # Prepare messages for API call
     api_messages = [{"role": "system", "content": system_prompt}]
@@ -82,7 +89,12 @@ def candidate_reply(messages: list[dict], scenario_text: str, difficulty: str, s
         return f"ERROR: Failed to get response from OpenAI API: {str(e)}"
 
 
-def _build_system_prompt(scenario_text: str, difficulty: str, stage: str) -> str:
+def _build_system_prompt(
+    scenario_text: str,
+    difficulty: str,
+    stage: str,
+    pending_gro_codes: list[str] = None
+) -> str:
     """
     Build the system prompt that instructs the AI how to behave.
     
@@ -90,6 +102,7 @@ def _build_system_prompt(scenario_text: str, difficulty: str, stage: str) -> str
         scenario_text: The scenario description
         difficulty: The difficulty level
         stage: Current PP2 stage
+        pending_gro_codes: List of NYC criterion codes needing recovery (optional)
     
     Returns:
         System prompt string
@@ -173,6 +186,19 @@ STAGE BEHAVIOR - Role Play:
 - Use first-person perspective naturally
 - Show appropriate emotions and reactions
 - Medium/Hard: Can omit some details or context initially
+"""
+        # Add NYC recovery instructions if there are pending GRO codes
+        if pending_gro_codes and len(pending_gro_codes) > 0:
+            stage_instructions += f"""
+
+RECOVERY PRACTICE MODE:
+- There are areas where you initially showed gaps or weaknesses
+- For generic questions: provide normal, realistic responses (not suddenly perfect)
+- For targeted follow-up questions that probe deeper: provide improved detail showing competence
+- Do NOT volunteer corrections unprompted
+- Only demonstrate fuller understanding when the assessor asks specific probing questions
+- Keep it natural - don't mention "gaps" or "recovery" or criterion codes
+- The assessor should earn the improved responses through good questioning
 """
     elif stage == "Oral Questions":
         stage_instructions = """
