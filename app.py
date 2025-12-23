@@ -713,8 +713,9 @@ def main():
             
             # Show item counter
             total_criteria = len(criteria_list)
+            assessed_count = sum(1 for r in st.session_state.roleplay_records.values() if r.status != "NYA")
             competent_count = sum(1 for r in st.session_state.roleplay_records.values() if r.status == "C")
-            st.caption(f"**Assessment Progress:** {competent_count}/{total_criteria} items")
+            st.caption(f"**Assessment Progress:** {assessed_count}/{total_criteria} assessed | {competent_count} competent")
             
             # Create criteria map for lookup
             criteria_map = {c["code"]: c for c in criteria_list}
@@ -755,10 +756,19 @@ def main():
                     st.divider()
                     # Status selection
                     status_key = f"rp_status_{code}"
+                    
+                    # Determine current index for 3-option radio
+                    if record.status == "NYA":
+                        status_index = 0
+                    elif record.status == "C":
+                        status_index = 1
+                    else:  # NYC
+                        status_index = 2
+                    
                     current_status = st.radio(
                         "Assessment Status",
-                        options=["C", "NYC"],
-                        index=0 if record.status == "C" else 1,
+                        options=["NYA", "C", "NYC"],
+                        index=status_index,
                         key=status_key,
                         horizontal=True
                     )
@@ -973,6 +983,7 @@ def main():
             total_criteria = len(criteria_list)
             
             # Count statuses
+            nya_count = sum(1 for r in st.session_state.roleplay_records.values() if r.status == "NYA")
             c_count = sum(1 for r in st.session_state.roleplay_records.values() if r.status == "C")
             nyc_count = sum(1 for r in st.session_state.roleplay_records.values() if r.status == "NYC")
             
@@ -982,14 +993,16 @@ def main():
             
             # Status summary
             with st.expander("📊 Role Play Status Summary", expanded=True):
-                col1, col2, col3, col4 = st.columns(4)
+                col1, col2, col3, col4, col5 = st.columns(5)
                 with col1:
                     st.metric("Total", total_criteria)
                 with col2:
-                    st.metric("Competent", c_count)
+                    st.metric("NYA", nya_count)
                 with col3:
-                    st.metric("NYC", nyc_count)
+                    st.metric("Competent", c_count)
                 with col4:
+                    st.metric("NYC", nyc_count)
+                with col5:
                     st.metric("GRO Pending", gro_pending_count)
                 
                 # Warning if GRO pending

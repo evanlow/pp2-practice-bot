@@ -64,7 +64,7 @@ def test_criterion_record_defaults():
     record = CriterionRecord(code="K2")
     
     assert record.code == "K2"
-    assert record.status == "C"
+    assert record.status == "NYA"
     assert record.evidence_note == ""
     assert record.gro is None
     print("✓ CriterionRecord defaults test passed")

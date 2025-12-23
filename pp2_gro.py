@@ -40,11 +40,11 @@ class CriterionRecord:
     
     Attributes:
         code: Criterion code (e.g., "A1", "K2", "RP1")
-        status: Assessment status - "C" (Competent) or "NYC" (Not Yet Competent)
+        status: Assessment status - "NYA" (Not Yet Assessed), "C" (Competent), or "NYC" (Not Yet Competent)
         evidence_note: Notes about evidence observed
         gro: Optional GRO entry if recovery was attempted
     """
     code: str
-    status: str = "C"
+    status: str = "NYA"
     evidence_note: str = ""
     gro: Optional[GROEntry] = None
