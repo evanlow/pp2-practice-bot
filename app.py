@@ -10,7 +10,7 @@ import streamlit as st
 from dotenv import load_dotenv
 from candidate import candidate_reply
 from pp2_state import PP2Session, PP2Stage, STAGE_ORDER
-from rubric import clone_stage_checklists, STAGE_CHECKLISTS
+from rubric import clone_stage_checklists, STAGE_CHECKLISTS, get_oral_questions_rubric
 from evidence_engine import update_evidence_from_assessor_text
 from pp2_record import Criterion, GRO, AssessmentRow
 from pp2_gro import GROEntry, CriterionRecord
@@ -235,6 +235,58 @@ def initialize_session_state():
         incomplete = get_nyc_codes_missing_gro()
         if incomplete:
             st.session_state.active_gro_code = incomplete[0]
+    
+    # Initialize current code selectors for manual GRO capture
+    if "current_rp_code" not in st.session_state:
+        # Default to first RP code if available
+        if st.session_state.roleplay_records:
+            st.session_state.current_rp_code = sorted(st.session_state.roleplay_records.keys())[0]
+        else:
+            st.session_state.current_rp_code = None
+    
+    if "current_oq_code" not in st.session_state:
+        st.session_state.current_oq_code = None  # Will be set when OQ records initialize
+    
+    # Initialize capture dictionaries for last assessor questions and candidate responses
+    if "last_assessor_question" not in st.session_state:
+        st.session_state.last_assessor_question = {}  # {code: question_text}
+    
+    if "last_candidate_response" not in st.session_state:
+        st.session_state.last_candidate_response = {}  # {code: response_text}
+    
+    # Initialize oral_records dict with GRO enforcement structures
+    if "oral_records" not in st.session_state:
+        st.session_state.oral_records = {}
+    
+    # Load OQ criteria from YAML
+    try:
+        oq_criteria = load_oq_criteria()
+        oq_codes = list(oq_criteria.keys())
+        
+        # Add missing codes to oral_records (keeps existing records)
+        for code in oq_codes:
+            if code not in st.session_state.oral_records:
+                st.session_state.oral_records[code] = CriterionRecord(code=code)
+        
+        # Migration: Convert old "C" defaults to "NYA" if no evidence/GRO exists
+        for code, record in st.session_state.oral_records.items():
+            if record.status == "C" and not record.evidence_note and record.gro is None:
+                record.status = "NYA"
+        
+        # Set default current_oq_code if not set
+        if st.session_state.current_oq_code is None and st.session_state.oral_records:
+            st.session_state.current_oq_code = sorted(st.session_state.oral_records.keys())[0]
+    except Exception as e:
+        # Don't fall back silently - show error
+        st.error(f"❌ Failed to load OQ criteria: {str(e)}")
+        st.stop()
+    
+    # Initialize active OQ GRO code
+    if "active_oq_gro_code" not in st.session_state:
+        st.session_state.active_oq_gro_code = None
+        incomplete_oq = get_oral_nyc_codes_missing_gro()
+        if incomplete_oq:
+            st.session_state.active_oq_gro_code = incomplete_oq[0]
 
 
 def get_nyc_codes_missing_gro():
@@ -256,16 +308,99 @@ def get_nyc_codes_missing_gro():
 
 
 def update_active_gro_code():
-    """Update active_gro_code to next NYC item needing GRO, or None if all complete."""
-    incomplete = get_nyc_codes_missing_gro()
+    """Update active_gro_code to next NYC item needing GRO, or None if all complete.
+    
+    Checks current stage and updates from appropriate records (RP or OQ).
+    """
+    current_stage = st.session_state.pp2.get_stage_name()
+    
+    if current_stage == "Role Play":
+        incomplete = get_nyc_codes_missing_gro()
+    elif current_stage == "Oral Questions":
+        incomplete = get_oral_nyc_codes_missing_gro()
+    else:
+        incomplete = []
+    
     if incomplete:
         st.session_state.active_gro_code = incomplete[0]
     else:
         st.session_state.active_gro_code = None
 
 
+def get_oral_nyc_codes_missing_gro():
+    """Get list of NYC OQ codes with missing or incomplete GRO.
+    
+    Returns:
+        List of OQ codes where status is NYC and GRO is missing or incomplete.
+    """
+    if "oral_records" not in st.session_state:
+        return []
+    
+    missing = []
+    for code, record in st.session_state.oral_records.items():
+        if record.status == "NYC":
+            if record.gro is None or not record.gro.completed:
+                missing.append(code)
+    
+    return missing
+
+
+def update_active_oq_gro_code():
+    """Update active_oq_gro_code to next NYC item needing GRO, or None if all complete."""
+    incomplete = get_oral_nyc_codes_missing_gro()
+    if incomplete:
+        st.session_state.active_oq_gro_code = incomplete[0]
+    else:
+        st.session_state.active_oq_gro_code = None
+
+
+def get_oral_records():
+    """Get oral_records dict safely.
+    
+    Returns:
+        Dict of OQ code to CriterionRecord, or empty dict if not initialized
+    """
+    return st.session_state.get("oral_records", {})
+
+
+def set_oral_status(code: str, status: str):
+    """Set status for an OQ criterion.
+    
+    Args:
+        code: OQ code (e.g., "OQ1", "OQ2a")
+        status: New status ("NYA", "C", or "NYC")
+    """
+    if "oral_records" in st.session_state and code in st.session_state.oral_records:
+        st.session_state.oral_records[code].status = status
+
+
+def get_oral_gro_pending_codes():
+    """Get list of OQ codes with NYC status needing GRO completion.
+    
+    Returns:
+        List of OQ codes where status is NYC and GRO is not completed
+    """
+    return get_oral_nyc_codes_missing_gro()
+
+
+def get_oral_nya_codes():
+    """Get list of OQ codes with NYA status (not yet assessed).
+    
+    Returns:
+        List of OQ codes where status is NYA
+    """
+    if "oral_records" not in st.session_state:
+        return []
+    
+    return [code for code, record in st.session_state.oral_records.items() 
+            if record.status == "NYA"]
+
+
 def can_advance_stage(from_stage: str) -> tuple[bool, list[str]]:
     """Check if can advance from current stage (NYC GRO validation).
+    
+    For Role Play: Blocks if NYC items lack completed GRO
+    For Oral Questions: Blocks if ANY item is NYA OR if NYC items lack completed GRO
     
     Args:
         from_stage: Current stage name
@@ -277,7 +412,18 @@ def can_advance_stage(from_stage: str) -> tuple[bool, list[str]]:
     if from_stage not in ["Role Play", "Oral Questions"]:
         return True, []
     
-    missing = get_nyc_codes_missing_gro()
+    # Check appropriate records based on stage
+    if from_stage == "Role Play":
+        missing = get_nyc_codes_missing_gro()
+    else:  # Oral Questions
+        # First check for NYA items (must assess all)
+        nya_codes = get_oral_nya_codes()
+        if nya_codes:
+            return False, nya_codes
+        
+        # Then check for NYC items missing GRO
+        missing = get_oral_nyc_codes_missing_gro()
+    
     return len(missing) == 0, missing
 
 
@@ -347,11 +493,25 @@ def handle_user_input(user_input: str):
         "content": user_input
     })
     
+    # Capture assessor question for current selected code
+    current_stage = st.session_state.pp2.get_stage_name()
+    if current_stage == "Role Play" and st.session_state.get("current_rp_code"):
+        code = st.session_state.current_rp_code
+        st.session_state.last_assessor_question[code] = user_input
+    elif current_stage == "Oral Questions" and st.session_state.get("current_oq_code"):
+        code = st.session_state.current_oq_code
+        st.session_state.last_assessor_question[code] = user_input
+    
     # Auto-capture GRO probe if active GRO exists and probe not yet captured
     if st.session_state.get("active_gro_code"):
         code = st.session_state.active_gro_code
         if code in st.session_state.roleplay_records:
             record = st.session_state.roleplay_records[code]
+            if record.gro is not None and not record.gro.probe_text:
+                record.gro.probe_text = user_input
+                record.gro.probe_turn = user_msg_index
+        elif code in st.session_state.oral_records:
+            record = st.session_state.oral_records[code]
             if record.gro is not None and not record.gro.probe_text:
                 record.gro.probe_text = user_input
                 record.gro.probe_turn = user_msg_index
@@ -420,11 +580,24 @@ def generate_pending_response():
         "content": response
     })
     
+    # Capture candidate response for current selected code
+    if current_stage == "Role Play" and st.session_state.get("current_rp_code"):
+        code = st.session_state.current_rp_code
+        st.session_state.last_candidate_response[code] = response
+    elif current_stage == "Oral Questions" and st.session_state.get("current_oq_code"):
+        code = st.session_state.current_oq_code
+        st.session_state.last_candidate_response[code] = response
+    
     # Auto-capture GRO response if active GRO exists with probe but no response yet
     if st.session_state.get("active_gro_code"):
         code = st.session_state.active_gro_code
         if code in st.session_state.roleplay_records:
             record = st.session_state.roleplay_records[code]
+            if record.gro is not None and record.gro.probe_text and not record.gro.response_text:
+                record.gro.response_text = response
+                record.gro.response_turn = response_msg_index
+        elif code in st.session_state.oral_records:
+            record = st.session_state.oral_records[code]
             if record.gro is not None and record.gro.probe_text and not record.gro.response_text:
                 record.gro.response_text = response
                 record.gro.response_turn = response_msg_index
@@ -653,10 +826,24 @@ def main():
         # Calculate completion for each stage
         stage_completions = {}
         for stage_name, checklist in st.session_state.evidence.items():
+            # Skip Oral Questions - it uses oral_records instead
+            if stage_name == "Oral Questions":
+                continue
             total = len(checklist)
             met = sum(1 for item in checklist if item.status == "C")
             percentage = (met / total * 100.0) if total > 0 else 0.0
             stage_completions[stage_name] = {"met": met, "total": total, "percentage": percentage}
+        
+        # Calculate Oral Questions completion from oral_records
+        try:
+            oq_criteria = load_oq_criteria()
+            total_oq = len(oq_criteria)
+            assessed_oq = sum(1 for r in st.session_state.oral_records.values() if r.status in ["C", "NYC"])
+            percentage_oq = (assessed_oq / total_oq * 100.0) if total_oq > 0 else 0.0
+            stage_completions["Oral Questions"] = {"met": assessed_oq, "total": total_oq, "percentage": percentage_oq}
+        except Exception:
+            # Fallback if OQ criteria can't be loaded
+            stage_completions["Oral Questions"] = {"met": 0, "total": 0, "percentage": 0.0}
         
         # Display per-stage completion
         for stage_name in ["Briefing", "Role Play", "Oral Questions", "Closing"]:
@@ -795,7 +982,8 @@ def main():
                 if "category" in criterion:
                     title_display = f"{code} ({criterion['category']}): {criterion['title']}"
                 
-                with st.expander(f"{title_display[:60]}...{gro_status_label}", expanded=False):
+                # Auto-expand if NYC to show GRO section immediately
+                with st.expander(f"{title_display[:60]}...{gro_status_label}", expanded=(record.status == "NYC")):
                     # Display criterion details
                     st.markdown(f"**{criterion['title']}**")
                     
@@ -837,6 +1025,11 @@ def main():
                             # Initialize GRO if needed
                             if record.gro is None:
                                 record.gro = GROEntry()
+                            # Prefill probe and response from captured data (editable)
+                            if code in st.session_state.last_assessor_question and not record.gro.probe_text:
+                                record.gro.probe_text = st.session_state.last_assessor_question[code]
+                            if code in st.session_state.last_candidate_response and not record.gro.response_text:
+                                record.gro.response_text = st.session_state.last_candidate_response[code]
                         # If toggled to C, update active GRO to next NYC needing GRO
                         elif st.session_state.active_gro_code == code:
                             update_active_gro_code()
@@ -945,6 +1138,217 @@ def main():
                                 st.rerun()
         else:
             st.info("Assessment record available in Role Play stage")
+        
+        st.divider()
+        
+        # Oral Questions Assessment Record
+        st.subheader("🎤 Oral Questions Assessment Record")
+        
+        if st.session_state.pp2.get_stage_name() == "Oral Questions":
+            st.caption("Track oral assessment responses with GRO records")
+            
+            # Load criteria for display
+            try:
+                oq_criteria_dict = load_oq_criteria()
+                criteria_list = get_oral_questions_rubric(oq_criteria_dict)
+            except Exception as e:
+                st.error(f"❌ Failed to load OQ criteria: {str(e)}")
+                st.stop()
+            
+            # Warning banner if NYC criteria lack completed GRO
+            can_advance, missing = can_advance_stage("Oral Questions")
+            if not can_advance:
+                st.warning(
+                    f"⚠️ **NYC detected.** You must complete GRO (Gap, Recover, Outcome) for {len(missing)} "
+                    f"{'criterion' if len(missing) == 1 else 'criteria'} before proceeding: **{', '.join(missing)}**"
+                )
+                if st.session_state.get("active_gro_code"):
+                    st.info(f"👉 Currently working on: **{st.session_state.active_gro_code}**")
+            
+            # Show item counter
+            total_criteria = len(criteria_list)
+            assessed_count = sum(1 for r in st.session_state.oral_records.values() if r.status != "NYA")
+            competent_count = sum(1 for r in st.session_state.oral_records.values() if r.status == "C")
+            st.caption(f"**Assessment Progress:** {assessed_count}/{total_criteria} assessed | {competent_count} competent")
+            
+            # Create criteria map for lookup
+            criteria_map = {c["code"]: c for c in criteria_list}
+            
+            for code, record in sorted(st.session_state.oral_records.items()):
+                criterion = criteria_map.get(code)
+                if not criterion:
+                    continue  # Skip if criterion not in YAML
+                
+                # Determine GRO status for display
+                gro_status_label = ""
+                if record.status == "NYC":
+                    if record.gro is None or record.gro.gap == "":
+                        gro_status_label = " | 🔴 GRO: Not started"
+                    elif record.gro.completed:
+                        gro_status_label = " | 🟢 GRO: Completed"
+                    else:
+                        gro_status_label = " | 🟡 GRO: In progress"
+                
+                # Build title
+                title_display = f"{code}: {criterion['title']}"
+                
+                # Auto-expand if NYC to show GRO section immediately
+                with st.expander(f"{title_display[:60]}...{gro_status_label}", expanded=(record.status == "NYC")):
+                    # Display criterion details
+                    st.markdown(f"**{criterion['title']}**")
+                    
+                    # Show instruction
+                    if "instruction" in criterion:
+                        st.markdown(f"*{criterion['instruction']}*")
+                    
+                    # Show evidence guidance as bullet list
+                    if "evidence_guidance" in criterion and criterion["evidence_guidance"]:
+                        st.markdown("**Evidence Guidance:**")
+                        for guidance in criterion["evidence_guidance"]:
+                            st.markdown(f"- {guidance}")
+                    
+                    st.divider()
+                    # Status selection
+                    status_key = f"oq_status_{code}"
+                    
+                    # Determine current index for 3-option radio
+                    if record.status == "NYA":
+                        status_index = 0
+                    elif record.status == "C":
+                        status_index = 1
+                    else:  # NYC
+                        status_index = 2
+                    
+                    current_status = st.radio(
+                        "Assessment Status",
+                        options=["NYA", "C", "NYC"],
+                        index=status_index,
+                        key=status_key,
+                        horizontal=True
+                    )
+                    
+                    # Update status if changed
+                    if current_status != record.status:
+                        record.status = current_status
+                        # If toggled to NYC, set as active GRO code for capture
+                        if current_status == "NYC":
+                            st.session_state.active_gro_code = code
+                            # Initialize GRO if needed
+                            if record.gro is None:
+                                record.gro = GROEntry()
+                            # Prefill probe and response from captured data (editable)
+                            if code in st.session_state.last_assessor_question and not record.gro.probe_text:
+                                record.gro.probe_text = st.session_state.last_assessor_question[code]
+                            if code in st.session_state.last_candidate_response and not record.gro.response_text:
+                                record.gro.response_text = st.session_state.last_candidate_response[code]
+                        # If toggled to C, update active GRO to next NYC needing GRO
+                        elif st.session_state.active_gro_code == code:
+                            update_active_gro_code()
+                        st.rerun()
+                    
+                    # Evidence note
+                    evidence_key = f"oq_evidence_{code}"
+                    evidence_note = st.text_area(
+                        "Evidence Note",
+                        value=record.evidence_note,
+                        key=evidence_key,
+                        height=68
+                    )
+                    record.evidence_note = evidence_note
+                    
+                    # GRO section for NYC items
+                    if record.status == "NYC":
+                        st.divider()
+                        st.markdown("**Gap-Recovery-Outcome (GRO)**")
+                        
+                        # Initialize GRO if needed
+                        if record.gro is None:
+                            record.gro = GROEntry()
+                        
+                        # Gap field
+                        gap_key = f"oq_gap_{code}"
+                        gap_text = st.text_area(
+                            "1. Gap (Required)",
+                            value=record.gro.gap,
+                            key=gap_key,
+                            height=68,
+                            help="Describe what was missing or insufficient"
+                        )
+                        record.gro.gap = gap_text
+                        
+                        # Probe field (read-only display)
+                        st.markdown("**2. Probe Question**")
+                        if record.gro.probe_text:
+                            st.text_area(
+                                "Probe",
+                                value=record.gro.probe_text,
+                                key=f"oq_probe_display_{code}",
+                                height=68,
+                                disabled=True,
+                                label_visibility="collapsed"
+                            )
+                        else:
+                            st.info("Not captured yet (ask a probing question in chat)")
+                        
+                        # Response field (read-only display)
+                        st.markdown("**3. Candidate Response**")
+                        if record.gro.response_text:
+                            st.text_area(
+                                "Response",
+                                value=record.gro.response_text,
+                                key=f"oq_response_display_{code}",
+                                height=68,
+                                disabled=True,
+                                label_visibility="collapsed"
+                            )
+                        else:
+                            st.info("Not captured yet")
+                        
+                        # Outcome selection
+                        st.markdown("**4. Outcome**")
+                        outcome_key = f"oq_outcome_{code}"
+                        outcome_options = ["Recovered to C", "Still NYC"]
+                        outcome_index = 0 if record.gro.outcome == "Recovered to C" else 1
+                        outcome = st.radio(
+                            "Outcome",
+                            options=outcome_options,
+                            index=outcome_index,
+                            key=outcome_key,
+                            horizontal=True,
+                            label_visibility="collapsed"
+                        )
+                        record.gro.outcome = outcome
+                        
+                        # Mark GRO Complete button
+                        st.divider()
+                        complete_key = f"oq_complete_{code}"
+                        if st.button("✅ Mark GRO Complete", key=complete_key, type="primary"):
+                            # Validation
+                            errors = []
+                            if not record.gro.gap.strip():
+                                errors.append("Gap field is required")
+                            if not record.gro.probe_text.strip():
+                                errors.append("Probe question not captured (ask a probing question in chat)")
+                            if not record.gro.response_text.strip():
+                                errors.append("Candidate response not captured yet")
+                            if not record.gro.outcome:
+                                errors.append("Outcome must be selected")
+                            
+                            if errors:
+                                for error in errors:
+                                    st.error(f"❌ {error}")
+                            else:
+                                # Mark as completed
+                                record.gro.completed = True
+                                if outcome == "Recovered to C":
+                                    record.status = "C"
+                                # Move to next NYC item needing GRO
+                                if st.session_state.active_gro_code == code:
+                                    update_active_gro_code()
+                                st.success("✅ GRO marked as complete!")
+                                st.rerun()
+        else:
+            st.info("Assessment record available in Oral Questions stage")
         
         st.divider()
         
@@ -1072,8 +1476,61 @@ def main():
         except Exception as e:
             st.error(f"Failed to load criteria: {str(e)}")
     
-    # Other stages: Show evidence checklist
-    elif current_stage in st.session_state.evidence:
+    # Oral Questions stage: Show OQ status summary
+    elif current_stage == "Oral Questions":
+        # Load criteria for counting
+        try:
+            oq_criteria_dict = load_oq_criteria()
+            criteria_list = get_oral_questions_rubric(oq_criteria_dict)
+            total_criteria = len(criteria_list)
+            
+            # Count statuses
+            nya_count = sum(1 for r in st.session_state.oral_records.values() if r.status == "NYA")
+            c_count = sum(1 for r in st.session_state.oral_records.values() if r.status == "C")
+            nyc_count = sum(1 for r in st.session_state.oral_records.values() if r.status == "NYC")
+            
+            # Count GRO pending
+            pending_gro = get_oral_nyc_codes_missing_gro()
+            gro_pending_count = len(pending_gro)
+            
+            # Status summary
+            with st.expander("📊 Oral Questions Status Summary", expanded=True):
+                col1, col2, col3, col4, col5 = st.columns(5)
+                with col1:
+                    st.metric("Total", total_criteria)
+                with col2:
+                    st.metric("NYA", nya_count)
+                with col3:
+                    st.metric("Competent", c_count)
+                with col4:
+                    st.metric("NYC", nyc_count)
+                with col5:
+                    st.metric("GRO Pending", gro_pending_count)
+                
+                # Warning if any NYA
+                if nya_count > 0:
+                    st.divider()
+                    nya_codes = get_oral_nya_codes()
+                    st.warning(
+                        f"⚠️ **{nya_count} {'item' if nya_count == 1 else 'items'} not yet assessed.** "
+                        f"You must assess all items before advancing.\n\n"
+                        f"Codes: **{', '.join(nya_codes)}**"
+                    )
+                
+                # Warning if GRO pending
+                if gro_pending_count > 0:
+                    st.divider()
+                    st.warning(
+                        f"⚠️ **{gro_pending_count} NYC {'item' if gro_pending_count == 1 else 'items'} need GRO completion** before you can advance.\n\n"
+                        f"Codes: **{', '.join(pending_gro)}**"
+                    )
+                    if st.session_state.get("active_gro_code"):
+                        st.info(f"👉 Currently working on: **{st.session_state.active_gro_code}**")
+        except Exception as e:
+            st.error(f"Failed to load OQ criteria: {str(e)}")
+    
+    # Other stages: Show evidence checklist (excluding Oral Questions - it has its own panel)
+    elif current_stage in st.session_state.evidence and current_stage != "Oral Questions":
         checklist = st.session_state.evidence[current_stage]
         met_count = sum(1 for item in checklist if item.status == "C")
         total_count = len(checklist)
@@ -1157,6 +1614,29 @@ def main():
     
     # Generate pending response if needed (shows spinner AFTER chat displays)
     generate_pending_response()
+    
+    # Code selector for GRO auto-capture (Role Play and Oral Questions only)
+    current_stage = st.session_state.pp2.get_stage_name()
+    if current_stage == "Role Play" and st.session_state.roleplay_records:
+        st.caption("🎯 **Current RP Code** (for auto-capturing probe/response)")
+        rp_codes = sorted(st.session_state.roleplay_records.keys())
+        st.session_state.current_rp_code = st.selectbox(
+            "Select Role Play code",
+            options=rp_codes,
+            index=rp_codes.index(st.session_state.current_rp_code) if st.session_state.current_rp_code in rp_codes else 0,
+            key="rp_code_selector",
+            label_visibility="collapsed"
+        )
+    elif current_stage == "Oral Questions" and st.session_state.oral_records:
+        st.caption("🎯 **Current OQ Code** (for auto-capturing probe/response)")
+        oq_codes = sorted(st.session_state.oral_records.keys())
+        st.session_state.current_oq_code = st.selectbox(
+            "Select Oral Questions code",
+            options=oq_codes,
+            index=oq_codes.index(st.session_state.current_oq_code) if st.session_state.current_oq_code in oq_codes else 0,
+            key="oq_code_selector",
+            label_visibility="collapsed"
+        )
     
     # Chat input - placed outside columns at the bottom for proper positioning
     if prompt := st.chat_input("Type your question or comment as the assessor..."):
