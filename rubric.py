@@ -161,3 +161,49 @@ def clone_stage_checklists() -> dict[str, list[AssessmentItem]]:
         Deep copy of STAGE_CHECKLISTS dict
     """
     return deepcopy(STAGE_CHECKLISTS)
+
+
+def get_oral_questions_rubric(oq_criteria_dict: dict) -> list[dict]:
+    """
+    Convert OQ criteria from YAML format to rubric format.
+    
+    Args:
+        oq_criteria_dict: Dict from load_oq_criteria() keyed by OQ code
+    
+    Returns:
+        List of criterion dicts with structured fields for rendering
+    
+    Example output format:
+        [
+            {
+                "code": "OQ1",
+                "title": "Benefits of adopting the Skills Framework",
+                "instruction": "Explain the benefits...",
+                "minimum_points_required": 3,
+                "evidence_guidance": ["point1", "point2", ...]
+            },
+            ...
+        ]
+    """
+    rubric_items = []
+    
+    for code, question_data in oq_criteria_dict.items():
+        rubric_item = {
+            "code": question_data.get("code", code),
+            "title": question_data.get("title", ""),
+            "instruction": question_data.get("instruction", ""),
+        }
+        
+        # Optional fields - preserve if present
+        if "minimum_points_required" in question_data:
+            rubric_item["minimum_points_required"] = question_data["minimum_points_required"]
+        
+        if "expected_position" in question_data:
+            rubric_item["expected_position"] = question_data["expected_position"]
+        
+        if "evidence_guidance" in question_data:
+            rubric_item["evidence_guidance"] = question_data["evidence_guidance"]
+        
+        rubric_items.append(rubric_item)
+    
+    return rubric_items
