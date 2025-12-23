@@ -128,6 +128,49 @@ def load_roleplay_criteria() -> list[dict]:
     except Exception as e:
         raise Exception(f"Error loading roleplay criteria: {str(e)}")
 
+
+def load_oq_criteria() -> dict:
+    """
+    Load Oral Questions criteria from YAML in st.secrets.
+    
+    Returns:
+        Dict keyed by OQ code (OQ1, OQ2a, etc.) with question details
+    
+    Raises:
+        Exception if YAML is missing or invalid
+    """
+    if not hasattr(st, "secrets") or "OQ_CRITERIA_YAML" not in st.secrets:
+        raise Exception("OQ_CRITERIA_YAML not found in st.secrets")
+    
+    try:
+        criteria_yaml = st.secrets["OQ_CRITERIA_YAML"]
+        data = yaml.safe_load(criteria_yaml)
+        
+        if data is None:
+            raise Exception("YAML parsing returned None - empty or invalid YAML content")
+        
+        if not isinstance(data, dict) or "oral_questions" not in data:
+            raise Exception("YAML must contain 'oral_questions' key with question definitions")
+        
+        oral_questions = data["oral_questions"]
+        if not isinstance(oral_questions, dict):
+            raise Exception("'oral_questions' must be a dict")
+        
+        # Validate each question has required fields
+        for code, question in oral_questions.items():
+            if "code" not in question:
+                raise Exception(f"Question missing 'code' field: {code}")
+            if "title" not in question:
+                raise Exception(f"Question {code} missing 'title' field")
+            if "instruction" not in question:
+                raise Exception(f"Question {code} missing 'instruction' field")
+        
+        return oral_questions
+    except yaml.YAMLError as e:
+        raise Exception(f"YAML parsing error: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Error loading OQ criteria: {str(e)}")
+
 def initialize_session_state():
     """Initialize session state variables if they don't exist"""
     if "messages" not in st.session_state:
