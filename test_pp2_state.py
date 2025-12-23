@@ -14,16 +14,15 @@ class TestPP2Stage(unittest.TestCase):
     """Test PP2Stage enum values"""
     
     def test_stage_enum_values(self):
-        """Verify all 5 stages exist with correct names"""
+        """Verify all 4 stages exist with correct names"""
         self.assertEqual(PP2Stage.BRIEFING.value, "Briefing")
         self.assertEqual(PP2Stage.ROLE_PLAY.value, "Role Play")
         self.assertEqual(PP2Stage.ORAL_QUESTIONS.value, "Oral Questions")
-        self.assertEqual(PP2Stage.RECOVERY.value, "Recovery")
         self.assertEqual(PP2Stage.CLOSING.value, "Closing")
     
     def test_stage_order_length(self):
-        """Verify STAGE_ORDER has exactly 5 stages"""
-        self.assertEqual(len(STAGE_ORDER), 5)
+        """Verify STAGE_ORDER has exactly 4 stages"""
+        self.assertEqual(len(STAGE_ORDER), 4)
     
     def test_stage_order_sequence(self):
         """Verify stages are in correct order"""
@@ -31,7 +30,6 @@ class TestPP2Stage(unittest.TestCase):
             PP2Stage.BRIEFING,
             PP2Stage.ROLE_PLAY,
             PP2Stage.ORAL_QUESTIONS,
-            PP2Stage.RECOVERY,
             PP2Stage.CLOSING,
         ]
         self.assertEqual(STAGE_ORDER, expected_order)
@@ -71,14 +69,8 @@ class TestPP2Session(unittest.TestCase):
         self.assertEqual(self.session.current_stage, PP2Stage.ORAL_QUESTIONS)
     
     def test_next_stage_from_oral_questions(self):
-        """next_stage() from Oral Questions should move to Recovery"""
+        """next_stage() from Oral Questions should move to Closing"""
         self.session.current_stage = PP2Stage.ORAL_QUESTIONS
-        self.session.next_stage()
-        self.assertEqual(self.session.current_stage, PP2Stage.RECOVERY)
-    
-    def test_next_stage_from_recovery(self):
-        """next_stage() from Recovery should move to Closing"""
-        self.session.current_stage = PP2Stage.RECOVERY
         self.session.next_stage()
         self.assertEqual(self.session.current_stage, PP2Stage.CLOSING)
     
@@ -101,9 +93,6 @@ class TestPP2Session(unittest.TestCase):
         self.assertEqual(self.session.current_stage, PP2Stage.ORAL_QUESTIONS)
         
         self.session.next_stage()
-        self.assertEqual(self.session.current_stage, PP2Stage.RECOVERY)
-        
-        self.session.next_stage()
         self.assertEqual(self.session.current_stage, PP2Stage.CLOSING)
         
         # Try to go further (should stay at Closing)
@@ -115,14 +104,8 @@ class TestPP2Session(unittest.TestCase):
     # ========================================================================
     
     def test_prev_stage_from_closing(self):
-        """prev_stage() from Closing should move to Recovery"""
+        """prev_stage() from Closing should move to Oral Questions"""
         self.session.current_stage = PP2Stage.CLOSING
-        self.session.prev_stage()
-        self.assertEqual(self.session.current_stage, PP2Stage.RECOVERY)
-    
-    def test_prev_stage_from_recovery(self):
-        """prev_stage() from Recovery should move to Oral Questions"""
-        self.session.current_stage = PP2Stage.RECOVERY
         self.session.prev_stage()
         self.assertEqual(self.session.current_stage, PP2Stage.ORAL_QUESTIONS)
     
@@ -149,9 +132,6 @@ class TestPP2Session(unittest.TestCase):
         self.session.current_stage = PP2Stage.CLOSING
         
         # Regress through all stages
-        self.session.prev_stage()
-        self.assertEqual(self.session.current_stage, PP2Stage.RECOVERY)
-        
         self.session.prev_stage()
         self.assertEqual(self.session.current_stage, PP2Stage.ORAL_QUESTIONS)
         
@@ -206,11 +186,6 @@ class TestPP2Session(unittest.TestCase):
         self.session.set_stage(PP2Stage.ORAL_QUESTIONS)
         self.assertEqual(self.session.current_stage, PP2Stage.ORAL_QUESTIONS)
     
-    def test_set_stage_to_recovery(self):
-        """set_stage() should jump to Recovery"""
-        self.session.set_stage(PP2Stage.RECOVERY)
-        self.assertEqual(self.session.current_stage, PP2Stage.RECOVERY)
-    
     def test_set_stage_to_closing(self):
         """set_stage() should jump to Closing"""
         self.session.set_stage(PP2Stage.CLOSING)
@@ -229,7 +204,7 @@ class TestPP2Session(unittest.TestCase):
         self.session.next_stage()
         self.session.next_stage()
         self.session.next_stage()
-        self.assertEqual(self.session.current_stage, PP2Stage.RECOVERY)
+        self.assertEqual(self.session.current_stage, PP2Stage.CLOSING)
         
         # Go back 2 stages
         self.session.prev_stage()
@@ -238,16 +213,16 @@ class TestPP2Session(unittest.TestCase):
     
     def test_jump_then_navigate(self):
         """Test jumping to a stage then using next/prev"""
-        # Jump to Recovery
-        self.session.set_stage(PP2Stage.RECOVERY)
+        # Jump to Oral Questions
+        self.session.set_stage(PP2Stage.ORAL_QUESTIONS)
         
         # Move forward to Closing
         self.session.next_stage()
         self.assertEqual(self.session.current_stage, PP2Stage.CLOSING)
         
-        # Move back to Recovery
+        # Move back to Oral Questions
         self.session.prev_stage()
-        self.assertEqual(self.session.current_stage, PP2Stage.RECOVERY)
+        self.assertEqual(self.session.current_stage, PP2Stage.ORAL_QUESTIONS)
     
     def test_reset_after_progression(self):
         """Test reset after moving through stages"""

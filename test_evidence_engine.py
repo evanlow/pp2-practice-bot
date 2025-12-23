@@ -323,7 +323,7 @@ class TestGetAllStagesSummary(unittest.TestCase):
         """Summary should include all stages"""
         summary = get_all_stages_summary(self.checklists)
         
-        expected_stages = ["Briefing", "Role Play", "Oral Questions", "Recovery", "Closing"]
+        expected_stages = ["Briefing", "Role Play", "Oral Questions", "Closing"]
         for stage in expected_stages:
             self.assertIn(stage, summary)
     
@@ -344,7 +344,6 @@ class TestGetAllStagesSummary(unittest.TestCase):
         self.assertEqual(summary["Briefing"]["total"], 14)
         self.assertEqual(summary["Role Play"]["total"], 4)
         self.assertEqual(summary["Oral Questions"]["total"], 4)
-        self.assertEqual(summary["Recovery"]["total"], 3)
         self.assertEqual(summary["Closing"]["total"], 3)
     
     def test_met_counts_when_nothing_met(self):

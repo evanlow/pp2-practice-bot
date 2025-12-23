@@ -14,7 +14,6 @@ class PP2Stage(Enum):
     BRIEFING = "Briefing"
     ROLE_PLAY = "Role Play"
     ORAL_QUESTIONS = "Oral Questions"
-    RECOVERY = "Recovery"
     CLOSING = "Closing"
 
 
@@ -23,7 +22,6 @@ STAGE_ORDER = [
     PP2Stage.BRIEFING,
     PP2Stage.ROLE_PLAY,
     PP2Stage.ORAL_QUESTIONS,
-    PP2Stage.RECOVERY,
     PP2Stage.CLOSING,
 ]
 

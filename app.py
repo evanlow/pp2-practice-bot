@@ -143,6 +143,13 @@ def initialize_session_state():
     if "pp2" not in st.session_state:
         st.session_state.pp2 = PP2Session()
     
+    # Migration: Handle old sessions with Recovery stage (now removed)
+    if hasattr(st.session_state.pp2, 'current_stage'):
+        stage_name = st.session_state.pp2.get_stage_name()
+        if stage_name == "Recovery":
+            # Migrate Recovery to Oral Questions
+            st.session_state.pp2.current_stage = PP2Stage.ORAL_QUESTIONS
+    
     # Initialize evidence tracking
     if "evidence" not in st.session_state:
         st.session_state.evidence = clone_stage_checklists()
@@ -223,8 +230,8 @@ def can_advance_stage(from_stage: str) -> tuple[bool, list[str]]:
     Returns:
         Tuple of (can_advance: bool, missing_codes: list[str])
     """
-    # Only enforce for Role Play and Recovery stages
-    if from_stage not in ["Role Play", "Recovery"]:
+    # Enforce GRO completion for Role Play and Oral Questions stages
+    if from_stage not in ["Role Play", "Oral Questions"]:
         return True, []
     
     missing = get_nyc_codes_missing_gro()
@@ -551,12 +558,12 @@ def main():
             if st.button("Next Stage ➡️", use_container_width=True):
                 current_stage = st.session_state.pp2.get_stage_name()
                 
-                # Validate GRO completion for Role Play and Recovery stages
+                # Validate GRO completion for Role Play and Oral Questions stages
                 can_advance, missing = can_advance_stage(current_stage)
                 if not can_advance:
                     st.error(
                         f"❌ Cannot advance from {current_stage} stage. "
-                        f"Recovery required (GRO not completed) for: {', '.join(missing)}"
+                        f"GRO completion required for: {', '.join(missing)}"
                     )
                     if st.session_state.get("active_gro_code"):
                         st.info(f"👉 Suggested: Complete GRO for criterion **{st.session_state.active_gro_code}**")
@@ -576,13 +583,13 @@ def main():
             if st.button("Jump to Stage", use_container_width=True):
                 current_stage = st.session_state.pp2.get_stage_name()
                 
-                # Validate GRO completion if leaving Role Play or Recovery
-                if current_stage in ["Role Play", "Recovery"] and selected_stage != current_stage:
+                # Validate GRO completion if leaving Role Play or Oral Questions
+                if current_stage in ["Role Play", "Oral Questions"] and selected_stage != current_stage:
                     can_advance, missing = can_advance_stage(current_stage)
                     if not can_advance:
                         st.error(
                             f"❌ Cannot leave {current_stage} stage. "
-                            f"Recovery required (GRO not completed) for: {', '.join(missing)}"
+                            f"GRO completion required for: {', '.join(missing)}"
                         )
                         if st.session_state.get("active_gro_code"):
                             st.info(f"👉 Suggested: Complete GRO for criterion **{st.session_state.active_gro_code}**")
@@ -609,7 +616,7 @@ def main():
             stage_completions[stage_name] = {"met": met, "total": total, "percentage": percentage}
         
         # Display per-stage completion
-        for stage_name in ["Briefing", "Role Play", "Oral Questions", "Recovery", "Closing"]:
+        for stage_name in ["Briefing", "Role Play", "Oral Questions", "Closing"]:
             if stage_name in stage_completions:
                 comp = stage_completions[stage_name]
                 st.caption(f"**{stage_name}:** {comp['met']}/{comp['total']} ({comp['percentage']:.0f}%)")
@@ -631,9 +638,9 @@ def main():
         
         st.divider()
         
-        # Recovery Queue - show during Role Play and Recovery stages
+        # GRO Recovery Queue - show during Role Play and Oral Questions stages
         current_stage = st.session_state.pp2.get_stage_name()
-        if current_stage in ["Role Play", "Recovery"]:
+        if current_stage in ["Role Play", "Oral Questions"]:
             pending_codes = get_nyc_codes_missing_gro()
             if pending_codes:
                 st.subheader("🔄 Recovery Queue")
@@ -920,7 +927,7 @@ def main():
             if not can_generate:
                 st.error(
                     f"❌ Cannot generate summary. "
-                    f"Recovery required (GRO not completed) for: {', '.join(missing)}"
+                    f"GRO completion required for: {', '.join(missing)}"
                 )
                 st.stop()
             
@@ -1107,10 +1114,6 @@ def main():
     
     # Generate pending response if needed (shows spinner AFTER chat displays)
     generate_pending_response()
-    
-    # Show hint for Recovery stage
-    if st.session_state.pp2.get_stage_name() == "Recovery":
-        st.info("💡 **Recovery stage:** Use probing questions (explain/clarify/demonstrate/why) to recover NYC items.")
     
     # Chat input - placed outside columns at the bottom for proper positioning
     if prompt := st.chat_input("Type your question or comment as the assessor..."):

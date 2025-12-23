@@ -57,7 +57,7 @@ class TestCandidateReplyDeterministic(unittest.TestCase):
         # In non-Briefing stages, these should go to OpenAI API (which will fail without key)
         # We can't fully test this without mocking OpenAI, but we verify it doesn't return
         # the deterministic response
-        stages = ["Role Play", "Oral Questions", "Recovery", "Closing"]
+        stages = ["Role Play", "Oral Questions", "Closing"]
         
         for stage in stages:
             with self.subTest(stage=stage):

@@ -133,21 +133,6 @@ STAGE_CHECKLISTS = {
         ),
     ],
     
-    "Recovery": [
-        AssessmentItem(
-            id="recovery_gaps",
-            text="Responded to probing questions about gaps or weaknesses"
-        ),
-        AssessmentItem(
-            id="recovery_clarification",
-            text="Clarified or expanded on previous responses"
-        ),
-        AssessmentItem(
-            id="recovery_evidence",
-            text="Provided additional evidence when prompted"
-        ),
-    ],
-    
     "Closing": [
         AssessmentItem(
             id="closing_summary",

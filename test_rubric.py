@@ -59,16 +59,16 @@ class TestAssessmentItem(unittest.TestCase):
 class TestStageChecklists(unittest.TestCase):
     """Test STAGE_CHECKLISTS structure"""
     
-    def test_has_all_five_stages(self):
-        """Verify STAGE_CHECKLISTS has all 5 PP2 stages"""
-        expected_stages = ["Briefing", "Role Play", "Oral Questions", "Recovery", "Closing"]
+    def test_has_all_four_stages(self):
+        """Verify STAGE_CHECKLISTS has all 4 PP2 stages"""
+        expected_stages = ["Briefing", "Role Play", "Oral Questions", "Closing"]
         
         for stage in expected_stages:
             self.assertIn(stage, STAGE_CHECKLISTS, f"Missing stage: {stage}")
     
     def test_stage_count(self):
-        """Verify exactly 5 stages in STAGE_CHECKLISTS"""
-        self.assertEqual(len(STAGE_CHECKLISTS), 5)
+        """Verify exactly 4 stages in STAGE_CHECKLISTS"""
+        self.assertEqual(len(STAGE_CHECKLISTS), 4)
     
     def test_briefing_checklist_structure(self):
         """Verify Briefing checklist has correct structure"""
@@ -123,23 +123,6 @@ class TestStageChecklists(unittest.TestCase):
         self.assertIn("oral_rationale", item_ids)
         self.assertIn("oral_clarity", item_ids)
         self.assertIn("oral_understanding", item_ids)
-    
-    def test_recovery_checklist_structure(self):
-        """Verify Recovery checklist has correct structure"""
-        recovery = STAGE_CHECKLISTS["Recovery"]
-        
-        # Should have 3 items as specified
-        self.assertEqual(len(recovery), 3)
-        
-        # All items should be AssessmentItem instances
-        for item in recovery:
-            self.assertIsInstance(item, AssessmentItem)
-        
-        # Check for specific expected items
-        item_ids = [item.id for item in recovery]
-        self.assertIn("recovery_gaps", item_ids)
-        self.assertIn("recovery_clarification", item_ids)
-        self.assertIn("recovery_evidence", item_ids)
     
     def test_closing_checklist_structure(self):
         """Verify Closing checklist has correct structure"""
