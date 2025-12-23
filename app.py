@@ -168,6 +168,11 @@ def initialize_session_state():
         for code in criteria_codes:
             if code not in st.session_state.roleplay_records:
                 st.session_state.roleplay_records[code] = CriterionRecord(code=code)
+        
+        # Migration: Convert old "C" defaults to "NYA" if no evidence/GRO exists
+        for code, record in st.session_state.roleplay_records.items():
+            if record.status == "C" and not record.evidence_note and record.gro is None:
+                record.status = "NYA"
     except Exception as e:
         # Don't fall back silently - show error
         st.error(f"❌ Failed to load roleplay criteria: {str(e)}")
